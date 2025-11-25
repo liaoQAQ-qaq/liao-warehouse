@@ -1,0 +1,1633 @@
+# Backend Code - DeepSeek RAG Project
+
+## File: /home/liaozhenhao/liao-warehouse/deepseek_rag_project/backend/server.py
+import os
+import shutil
+import asyncio
+from typing import List, Optional
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
+from dotenv import load_dotenv
+
+# 导入管理器模块
+from session_manager import session_manager, ChatSession, ChatMessage
+from upload_manager import upload_manager, UploadTask
+
+load_dotenv()
+
+app = FastAPI(title="DeepSeek RAG API - 增强版")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 数据目录
+DATA_DIR = "../data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
+class ChatRequest(BaseModel):
+    input: str
+    session_id: Optional[str] = None
+
+class ChatResponse(BaseModel):
+    output: str
+    session_id: str
+
+class FileInfo(BaseModel):
+    name: str
+    size: int
+    type: str
+
+# 会话相关模型
+class SessionCreateRequest(BaseModel):
+    title: Optional[str] = None
+
+class SessionResponse(BaseModel):
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+    message_count: int
+
+class MessageResponse(BaseModel):
+    id: str
+    session_id: str
+    role: str
+    content: str
+    timestamp: str
+
+# 上传相关模型
+class UploadStartRequest(BaseModel):
+    filename: str
+    total_size: int
+
+class UploadStartResponse(BaseModel):
+    task_id: str
+    message: str
+
+class UploadTaskResponse(BaseModel):
+    id: str
+    filename: str
+    total_size: int
+    uploaded_size: int
+    status: str
+    progress: float
+    created_at: str
+    updated_at: str
+    error_message: Optional[str] = None
+
+# 懒初始化简单智能体
+_simple_agent = None
+
+@app.on_event("startup")
+def startup_event():
+    global _simple_agent
+    try:
+        from simple_agent import get_simple_agent
+        _simple_agent = get_simple_agent()
+        print("✅ 简化版智能体初始化成功")
+    except Exception as e:
+        print(f"❌ 智能体初始化失败: {e}")
+        _simple_agent = None
+
+@app.get("/")
+def root():
+    return {"message": "DeepSeek RAG API - 简化版运行中"}
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(req: ChatRequest):
+    global _simple_agent
+    if _simple_agent is None:
+        raise HTTPException(status_code=503, detail="智能体服务暂不可用")
+
+    try:
+        # 处理会话ID
+        session_id = req.session_id
+        if not session_id:
+            # 如果没有提供会话ID，创建新会话
+            session_id = session_manager.create_session()
+        else:
+            # 验证会话是否存在
+            session = session_manager.get_session(session_id)
+            if not session:
+                session_id = session_manager.create_session()
+
+        # 记录用户消息
+        session_manager.add_message(session_id, "user", req.input)
+
+        # 处理AI响应
+        res = _simple_agent.invoke({"input": req.input})
+        if isinstance(res, dict):
+            out = res.get("output") or res.get("result") or str(res)
+        else:
+            out = str(res)
+
+        # 记录AI响应
+        session_manager.add_message(session_id, "assistant", out)
+
+        return ChatResponse(output=out, session_id=session_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"处理请求时出错: {str(e)}")
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "agent": _simple_agent is not None}
+
+# 文件管理API
+@app.get("/api/files", response_model=List[FileInfo])
+async def list_files():
+    """列出知识库中的所有文件"""
+    try:
+        files = []
+        for filename in os.listdir(DATA_DIR):
+            filepath = os.path.join(DATA_DIR, filename)
+            if os.path.isfile(filepath):
+                stat = os.stat(filepath)
+                files.append(FileInfo(
+                    name=filename,
+                    size=stat.st_size,
+                    type=filename.split('.')[-1] if '.' in filename else 'unknown'
+                ))
+        return files
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"列出文件失败: {str(e)}")
+
+@app.post("/api/upload")
+async def upload_file(file: UploadFile = File(...)):
+    """上传文件到知识库"""
+    try:
+        # 检查文件类型
+        allowed_types = ['.txt', '.md', '.pdf', '.docx', '.doc']
+        file_ext = os.path.splitext(file.filename)[1].lower()
+
+        if file_ext not in allowed_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"不支持的文件类型。支持的类型: {', '.join(allowed_types)}"
+            )
+
+        # 保存文件
+        file_path = os.path.join(DATA_DIR, file.filename)
+
+        # 如果文件已存在，生成唯一文件名
+        counter = 1
+        original_name = file.filename
+        while os.path.exists(file_path):
+            name, ext = os.path.splitext(original_name)
+            file.filename = f"{name}_{counter}{ext}"
+            file_path = os.path.join(DATA_DIR, file.filename)
+            counter += 1
+
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        # 重新加载RAG引擎
+        global _simple_agent
+        if _simple_agent:
+            from simple_agent import get_simple_agent
+            _simple_agent = get_simple_agent()
+            # 强制重新加载文档
+            from simple_rag import get_rag_engine
+            rag_engine = get_rag_engine()
+            rag_engine.load_documents()
+
+        return {
+            "message": "文件上传成功",
+            "filename": file.filename,
+            "size": os.path.getsize(file_path)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"文件上传失败: {str(e)}")
+
+@app.get("/api/download/{filename}")
+async def download_file(filename: str):
+    """下载知识库中的文件"""
+    try:
+        file_path = os.path.join(DATA_DIR, filename)
+
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="文件不存在")
+
+        if not os.path.isfile(file_path):
+            raise HTTPException(status_code=400, detail="不是有效文件")
+
+        return FileResponse(
+            path=file_path,
+            filename=filename,
+            media_type='application/octet-stream'
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"文件下载失败: {str(e)}")
+
+@app.delete("/api/files/{filename}")
+async def delete_file(filename: str):
+    """删除知识库中的文件"""
+    try:
+        file_path = os.path.join(DATA_DIR, filename)
+
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="文件不存在")
+
+        if not os.path.isfile(file_path):
+            raise HTTPException(status_code=400, detail="不是有效文件")
+
+        os.remove(file_path)
+
+        # 重新加载RAG引擎
+        global _simple_agent
+        if _simple_agent:
+            from simple_agent import get_simple_agent
+            _simple_agent = get_simple_agent()
+            # 强制重新加载文档
+            from simple_rag import get_rag_engine
+            rag_engine = get_rag_engine()
+            rag_engine.load_documents()
+
+        return {"message": f"文件 {filename} 删除成功"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"文件删除失败: {str(e)}")
+
+# ===== 会话管理 API =====
+
+@app.post("/api/sessions", response_model=SessionResponse)
+def create_session(req: SessionCreateRequest):
+    """创建新会话"""
+    try:
+        session_id = session_manager.create_session(req.title)
+        session = session_manager.get_session(session_id)
+        return SessionResponse(
+            id=session.id,
+            title=session.title,
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+            message_count=session.message_count
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"创建会话失败: {str(e)}")
+
+@app.get("/api/sessions", response_model=List[SessionResponse])
+def get_sessions(limit: int = 50, offset: int = 0):
+    """获取会话列表"""
+    try:
+        sessions = session_manager.get_sessions(limit, offset)
+        return [
+            SessionResponse(
+                id=s.id,
+                title=s.title,
+                created_at=s.created_at,
+                updated_at=s.updated_at,
+                message_count=s.message_count
+            ) for s in sessions
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取会话列表失败: {str(e)}")
+
+@app.get("/api/sessions/{session_id}", response_model=SessionResponse)
+def get_session(session_id: str):
+    """获取单个会话"""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="会话不存在")
+
+        return SessionResponse(
+            id=session.id,
+            title=session.title,
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+            message_count=session.message_count
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取会话失败: {str(e)}")
+
+@app.get("/api/sessions/{session_id}/messages", response_model=List[MessageResponse])
+def get_session_messages(session_id: str):
+    """获取会话的所有消息"""
+    try:
+        messages = session_manager.get_session_messages(session_id)
+        return [
+            MessageResponse(
+                id=m.id,
+                session_id=m.session_id,
+                role=m.role,
+                content=m.content,
+                timestamp=m.timestamp
+            ) for m in messages
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取会话消息失败: {str(e)}")
+
+@app.put("/api/sessions/{session_id}/title")
+def update_session_title(session_id: str, title: str):
+    """更新会话标题"""
+    try:
+        success = session_manager.update_session_title(session_id, title)
+        if not success:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        return {"message": "会话标题更新成功"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"更新会话标题失败: {str(e)}")
+
+@app.delete("/api/sessions/{session_id}")
+def delete_session(session_id: str):
+    """删除会话"""
+    try:
+        success = session_manager.delete_session(session_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        return {"message": "会话删除成功"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"删除会话失败: {str(e)}")
+
+@app.get("/api/sessions/search")
+def search_sessions(q: str, limit: int = 20):
+    """搜索会话"""
+    try:
+        sessions = session_manager.search_sessions(q, limit)
+        return [
+            SessionResponse(
+                id=s.id,
+                title=s.title,
+                created_at=s.created_at,
+                updated_at=s.updated_at,
+                message_count=s.message_count
+            ) for s in sessions
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"搜索会话失败: {str(e)}")
+
+@app.get("/api/sessions/stats")
+def get_session_stats():
+    """获取会话统计信息"""
+    try:
+        stats = session_manager.get_session_stats()
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取统计信息失败: {str(e)}")
+
+# ===== 文件上传管理 API =====
+
+@app.post("/api/upload/start", response_model=UploadStartResponse)
+def start_upload(req: UploadStartRequest):
+    """开始文件上传任务"""
+    try:
+        # 检查文件类型
+        allowed_types = ['.txt', '.md', '.pdf', '.docx', '.doc']
+        file_ext = os.path.splitext(req.filename)[1].lower()
+
+        if file_ext not in allowed_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"不支持的文件类型。支持的类型: {', '.join(allowed_types)}"
+            )
+
+        task_id = upload_manager.create_upload_task(req.filename, req.total_size)
+        return UploadStartResponse(
+            task_id=task_id,
+            message="上传任务创建成功"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"创建上传任务失败: {str(e)}")
+
+@app.post("/api/upload/{task_id}")
+async def upload_file_chunk(task_id: str, file: UploadFile = File(...)):
+    """上传文件内容"""
+    try:
+        task = upload_manager.get_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="上传任务不存在")
+
+        # 验证文件名和大小
+        if file.filename != task.filename:
+            raise HTTPException(status_code=400, detail="文件名不匹配")
+
+        content_length = file.size if hasattr(file, 'size') else 0
+        if content_length > 0 and content_length != task.total_size:
+            raise HTTPException(status_code=400, detail="文件大小不匹配")
+
+        # 开始上传
+        success = await upload_manager.start_upload(task_id, file)
+
+        if success:
+            # 重新加载RAG引擎
+            global _simple_agent
+            if _simple_agent:
+                from simple_agent import get_simple_agent
+                _simple_agent = get_simple_agent()
+                from simple_rag import get_rag_engine
+                rag_engine = get_rag_engine()
+                rag_engine.load_documents()
+
+            return {"message": "文件上传成功", "task_id": task_id}
+        else:
+            raise HTTPException(status_code=500, detail="文件上传失败")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"上传文件失败: {str(e)}")
+
+@app.get("/api/upload/{task_id}", response_model=UploadTaskResponse)
+def get_upload_task(task_id: str):
+    """获取上传任务状态"""
+    try:
+        task = upload_manager.get_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="上传任务不存在")
+
+        return UploadTaskResponse(
+            id=task.id,
+            filename=task.filename,
+            total_size=task.total_size,
+            uploaded_size=task.uploaded_size,
+            status=task.status,
+            progress=task.progress,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            error_message=task.error_message
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取上传任务失败: {str(e)}")
+
+@app.get("/api/uploads", response_model=List[UploadTaskResponse])
+def get_all_upload_tasks():
+    """获取所有上传任务"""
+    try:
+        tasks = upload_manager.get_all_tasks()
+        return [
+            UploadTaskResponse(
+                id=t.id,
+                filename=t.filename,
+                total_size=t.total_size,
+                uploaded_size=t.uploaded_size,
+                status=t.status,
+                progress=t.progress,
+                created_at=t.created_at,
+                updated_at=t.updated_at,
+                error_message=t.error_message
+            ) for t in tasks.values()
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取上传任务列表失败: {str(e)}")
+
+@app.post("/api/upload/{task_id}/pause")
+def pause_upload(task_id: str):
+    """暂停上传"""
+    try:
+        success = upload_manager.pause_upload(task_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="上传任务不存在或无法暂停")
+        return {"message": "上传已暂停"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"暂停上传失败: {str(e)}")
+
+@app.post("/api/upload/{task_id}/resume")
+def resume_upload(task_id: str):
+    """恢复上传"""
+    try:
+        success = upload_manager.resume_upload(task_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="上传任务不存在或无法恢复")
+        return {"message": "上传已恢复"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"恢复上传失败: {str(e)}")
+
+@app.post("/api/upload/{task_id}/cancel")
+def cancel_upload(task_id: str):
+    """取消上传"""
+    try:
+        success = upload_manager.cancel_upload(task_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="上传任务不存在或无法取消")
+        return {"message": "上传已取消"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"取消上传失败: {str(e)}")
+
+@app.get("/api/upload/stats")
+def get_upload_stats():
+    """获取上传统计信息"""
+    try:
+        stats = upload_manager.get_upload_stats()
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取上传统计失败: {str(e)}")
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("API_PORT", "8000"))
+    uvicorn.run("backend.server:app", host="0.0.0.0", port=port, reload=True)
+
+## File: /home/liaozhenhao/liao-warehouse/deepseek_rag_project/backend/session_manager.py
+"""
+会话管理模块
+提供历史会话记录的存储和检索功能
+"""
+
+import sqlite3
+import json
+import os
+from datetime import datetime
+from typing import List, Dict, Optional, Tuple
+from dataclasses import dataclass, asdict
+import uuid
+
+# 数据库文件路径
+DB_DIR = "../data"
+DB_PATH = os.path.join(DB_DIR, "sessions.db")
+
+@dataclass
+class ChatSession:
+    """聊天会话数据模型"""
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+    message_count: int
+    metadata: Dict = None
+
+@dataclass
+class ChatMessage:
+    """聊天消息数据模型"""
+    id: str
+    session_id: str
+    role: str  # 'user' or 'assistant'
+    content: str
+    timestamp: str
+    metadata: Dict = None
+
+class SessionManager:
+    """会话管理器"""
+
+    def __init__(self):
+        self.init_database()
+
+    def init_database(self):
+        """初始化数据库"""
+        os.makedirs(DB_DIR, exist_ok=True)
+
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+
+            # 创建会话表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    message_count INTEGER DEFAULT 0,
+                    metadata TEXT
+                )
+            ''')
+
+            # 创建消息表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS messages (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    metadata TEXT,
+                    FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE CASCADE
+                )
+            ''')
+
+            # 创建索引
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at)')
+
+            conn.commit()
+
+    def create_session(self, title: str = None) -> str:
+        """创建新会话"""
+        session_id = str(uuid.uuid4())
+        now = datetime.now().isoformat()
+
+        if not title:
+            title = f"对话 {datetime.now().strftime('%m-%d %H:%M')}"
+
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO sessions (id, title, created_at, updated_at, message_count, metadata)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (session_id, title, now, now, 0, '{}'))
+            conn.commit()
+
+        return session_id
+
+    def add_message(self, session_id: str, role: str, content: str, metadata: Dict = None) -> str:
+        """添加消息到会话"""
+        message_id = str(uuid.uuid4())
+        now = datetime.now().isoformat()
+
+        if metadata is None:
+            metadata = {}
+
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+
+            # 插入消息
+            cursor.execute('''
+                INSERT INTO messages (id, session_id, role, content, timestamp, metadata)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (message_id, session_id, role, content, now, json.dumps(metadata)))
+
+            # 更新会话的消息数量和更新时间
+            cursor.execute('''
+                UPDATE sessions
+                SET message_count = message_count + 1, updated_at = ?
+                WHERE id = ?
+            ''', (now, session_id))
+
+            conn.commit()
+
+        return message_id
+
+    def get_sessions(self, limit: int = 50, offset: int = 0) -> List[ChatSession]:
+        """获取会话列表"""
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, title, created_at, updated_at, message_count, metadata
+                FROM sessions
+                ORDER BY updated_at DESC
+                LIMIT ? OFFSET ?
+            ''', (limit, offset))
+
+            sessions = []
+            for row in cursor.fetchall():
+                metadata = json.loads(row[5]) if row[5] else {}
+                sessions.append(ChatSession(
+                    id=row[0],
+                    title=row[1],
+                    created_at=row[2],
+                    updated_at=row[3],
+                    message_count=row[4],
+                    metadata=metadata
+                ))
+
+            return sessions
+
+    def get_session_messages(self, session_id: str) -> List[ChatMessage]:
+        """获取会话的所有消息"""
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, session_id, role, content, timestamp, metadata
+                FROM messages
+                WHERE session_id = ?
+                ORDER BY timestamp ASC
+            ''', (session_id,))
+
+            messages = []
+            for row in cursor.fetchall():
+                metadata = json.loads(row[5]) if row[5] else {}
+                messages.append(ChatMessage(
+                    id=row[0],
+                    session_id=row[1],
+                    role=row[2],
+                    content=row[3],
+                    timestamp=row[4],
+                    metadata=metadata
+                ))
+
+            return messages
+
+    def get_session(self, session_id: str) -> Optional[ChatSession]:
+        """获取单个会话"""
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, title, created_at, updated_at, message_count, metadata
+                FROM sessions
+                WHERE id = ?
+            ''', (session_id,))
+
+            row = cursor.fetchone()
+            if row:
+                metadata = json.loads(row[5]) if row[5] else {}
+                return ChatSession(
+                    id=row[0],
+                    title=row[1],
+                    created_at=row[2],
+                    updated_at=row[3],
+                    message_count=row[4],
+                    metadata=metadata
+                )
+            return None
+
+    def update_session_title(self, session_id: str, title: str) -> bool:
+        """更新会话标题"""
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE sessions
+                SET title = ?, updated_at = ?
+                WHERE id = ?
+            ''', (title, datetime.now().isoformat(), session_id))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def delete_session(self, session_id: str) -> bool:
+        """删除会话及其所有消息"""
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM sessions WHERE id = ?', (session_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def search_sessions(self, query: str, limit: int = 20) -> List[ChatSession]:
+        """搜索会话"""
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT DISTINCT s.id, s.title, s.created_at, s.updated_at, s.message_count, s.metadata
+                FROM sessions s
+                LEFT JOIN messages m ON s.id = m.session_id
+                WHERE s.title LIKE ? OR m.content LIKE ?
+                ORDER BY s.updated_at DESC
+                LIMIT ?
+            ''', (f'%{query}%', f'%{query}%', limit))
+
+            sessions = []
+            for row in cursor.fetchall():
+                metadata = json.loads(row[5]) if row[5] else {}
+                sessions.append(ChatSession(
+                    id=row[0],
+                    title=row[1],
+                    created_at=row[2],
+                    updated_at=row[3],
+                    message_count=row[4],
+                    metadata=metadata
+                ))
+
+            return sessions
+
+    def get_session_stats(self) -> Dict:
+        """获取会话统计信息"""
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+
+            # 总会话数
+            cursor.execute('SELECT COUNT(*) FROM sessions')
+            total_sessions = cursor.fetchone()[0]
+
+            # 总消息数
+            cursor.execute('SELECT COUNT(*) FROM messages')
+            total_messages = cursor.fetchone()[0]
+
+            # 今日会话数
+            today = datetime.now().date().isoformat()
+            cursor.execute('SELECT COUNT(*) FROM sessions WHERE created_at >= ?', (f'{today}T00:00:00',))
+            today_sessions = cursor.fetchone()[0]
+
+            return {
+                'total_sessions': total_sessions,
+                'total_messages': total_messages,
+                'today_sessions': today_sessions
+            }
+
+# 全局会话管理器实例
+session_manager = SessionManager()
+
+## File: /home/liaozhenhao/liao-warehouse/deepseek_rag_project/backend/upload_manager.py
+"""
+文件上传管理模块
+提供文件上传进度跟踪和中断功能
+"""
+
+import os
+import asyncio
+import uuid
+import json
+import tempfile
+from datetime import datetime
+from typing import Dict, Optional, Callable
+from dataclasses import dataclass, asdict
+from fastapi import UploadFile, HTTPException
+import aiofiles
+import shutil
+
+@dataclass
+class UploadTask:
+    """上传任务数据模型"""
+    id: str
+    filename: str
+    total_size: int
+    uploaded_size: int = 0
+    status: str = "pending"  # pending, uploading, paused, completed, failed, cancelled
+    progress: float = 0.0
+    created_at: str = None
+    updated_at: str = None
+    temp_file_path: str = None
+    final_file_path: str = None
+    error_message: str = None
+
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.now().isoformat()
+        if self.updated_at is None:
+            self.updated_at = datetime.now().isoformat()
+
+class UploadManager:
+    """上传管理器"""
+
+    def __init__(self, data_dir: str = "../data"):
+        self.data_dir = data_dir
+        self.tasks: Dict[str, UploadTask] = {}
+        self.chunk_size = 1024 * 1024  # 1MB chunks
+        os.makedirs(data_dir, exist_ok=True)
+        os.makedirs(os.path.join(data_dir, "temp"), exist_ok=True)
+
+    def create_upload_task(self, filename: str, total_size: int) -> str:
+        """创建上传任务"""
+        task_id = str(uuid.uuid4())
+        temp_filename = f"temp_{task_id}_{filename}"
+        temp_file_path = os.path.join(self.data_dir, "temp", temp_filename)
+        final_file_path = os.path.join(self.data_dir, filename)
+
+        task = UploadTask(
+            id=task_id,
+            filename=filename,
+            total_size=total_size,
+            temp_file_path=temp_file_path,
+            final_file_path=final_file_path,
+            status="pending"
+        )
+
+        self.tasks[task_id] = task
+        return task_id
+
+    def get_task(self, task_id: str) -> Optional[UploadTask]:
+        """获取上传任务"""
+        return self.tasks.get(task_id)
+
+    def get_all_tasks(self) -> Dict[str, UploadTask]:
+        """获取所有上传任务"""
+        return self.tasks.copy()
+
+    def update_task_progress(self, task_id: str, uploaded_size: int, status: str = None) -> bool:
+        """更新上传任务进度"""
+        if task_id not in self.tasks:
+            return False
+
+        task = self.tasks[task_id]
+        task.uploaded_size = uploaded_size
+        task.progress = min(100.0, (uploaded_size / task.total_size) * 100)
+        task.updated_at = datetime.now().isoformat()
+
+        if status:
+            task.status = status
+
+        return True
+
+    async def start_upload(self, task_id: str, file: UploadFile,
+                          progress_callback: Optional[Callable] = None) -> bool:
+        """开始文件上传"""
+        if task_id not in self.tasks:
+            raise HTTPException(status_code=404, detail="上传任务不存在")
+
+        task = self.tasks[task_id]
+
+        try:
+            task.status = "uploading"
+
+            # 如果文件已存在（恢复上传），获取已上传的大小
+            if os.path.exists(task.temp_file_path):
+                task.uploaded_size = os.path.getsize(task.temp_file_path)
+                task.progress = (task.uploaded_size / task.total_size) * 100
+
+            async with aiofiles.open(task.temp_file_path, 'ab') as temp_file:
+                # 跳过已上传的部分
+                if task.uploaded_size > 0:
+                    await file.seek(task.uploaded_size)
+
+                while True:
+                    # 检查任务状态
+                    if task.status == "cancelled":
+                        return False
+
+                    if task.status == "paused":
+                        await asyncio.sleep(0.1)
+                        continue
+
+                    # 读取数据块
+                    chunk = await file.read(self.chunk_size)
+                    if not chunk:
+                        break
+
+                    # 写入临时文件
+                    await temp_file.write(chunk)
+                    task.uploaded_size += len(chunk)
+                    task.progress = (task.uploaded_size / task.total_size) * 100
+                    task.updated_at = datetime.now().isoformat()
+
+                    # 调用进度回调
+                    if progress_callback:
+                        await progress_callback(task)
+
+            # 检查是否上传完成
+            if task.uploaded_size >= task.total_size:
+                await self.complete_upload(task_id)
+                return True
+            else:
+                task.status = "failed"
+                task.error_message = "上传不完整"
+                return False
+
+        except Exception as e:
+            task.status = "failed"
+            task.error_message = str(e)
+            return False
+
+    async def complete_upload(self, task_id: str) -> bool:
+        """完成上传，将临时文件移动到最终位置"""
+        if task_id not in self.tasks:
+            return False
+
+        task = self.tasks[task_id]
+
+        try:
+            # 检查文件是否已存在，如果存在则生成新文件名
+            final_path = task.final_file_path
+            counter = 1
+            original_name = task.filename
+
+            while os.path.exists(final_path):
+                name, ext = os.path.splitext(original_name)
+                new_filename = f"{name}_{counter}{ext}"
+                final_path = os.path.join(self.data_dir, new_filename)
+                counter += 1
+
+            # 移动文件到最终位置
+            shutil.move(task.temp_file_path, final_path)
+
+            task.status = "completed"
+            task.progress = 100.0
+            task.final_file_path = final_path
+            task.updated_at = datetime.now().isoformat()
+
+            return True
+
+        except Exception as e:
+            task.status = "failed"
+            task.error_message = str(e)
+            return False
+
+    def pause_upload(self, task_id: str) -> bool:
+        """暂停上传"""
+        if task_id not in self.tasks:
+            return False
+
+        task = self.tasks[task_id]
+        if task.status == "uploading":
+            task.status = "paused"
+            task.updated_at = datetime.now().isoformat()
+            return True
+        return False
+
+    def resume_upload(self, task_id: str) -> bool:
+        """恢复上传"""
+        if task_id not in self.tasks:
+            return False
+
+        task = self.tasks[task_id]
+        if task.status == "paused":
+            task.status = "uploading"
+            task.updated_at = datetime.now().isoformat()
+            return True
+        return False
+
+    def cancel_upload(self, task_id: str) -> bool:
+        """取消上传"""
+        if task_id not in self.tasks:
+            return False
+
+        task = self.tasks[task_id]
+        task.status = "cancelled"
+        task.updated_at = datetime.now().isoformat()
+
+        # 删除临时文件
+        if task.temp_file_path and os.path.exists(task.temp_file_path):
+            try:
+                os.remove(task.temp_file_path)
+            except:
+                pass
+
+        return True
+
+    def cleanup_completed_tasks(self, max_age_hours: int = 24):
+        """清理已完成的任务"""
+        current_time = datetime.now()
+        tasks_to_remove = []
+
+        for task_id, task in self.tasks.items():
+            if task.status in ["completed", "failed", "cancelled"]:
+                task_time = datetime.fromisoformat(task.updated_at)
+                age_hours = (current_time - task_time).total_seconds() / 3600
+
+                if age_hours > max_age_hours:
+                    # 删除临时文件
+                    if task.temp_file_path and os.path.exists(task.temp_file_path):
+                        try:
+                            os.remove(task.temp_file_path)
+                        except:
+                            pass
+                    tasks_to_remove.append(task_id)
+
+        for task_id in tasks_to_remove:
+            del self.tasks[task_id]
+
+    def get_upload_stats(self) -> Dict:
+        """获取上传统计信息"""
+        stats = {
+            "total_tasks": len(self.tasks),
+            "pending": 0,
+            "uploading": 0,
+            "paused": 0,
+            "completed": 0,
+            "failed": 0,
+            "cancelled": 0
+        }
+
+        for task in self.tasks.values():
+            stats[task.status] += 1
+
+        return stats
+
+# 全局上传管理器实例
+upload_manager = UploadManager()
+
+## File: /home/liaozhenhao/liao-warehouse/deepseek_rag_project/backend/simple_rag.py
+"""
+简化版 RAG 引擎 - 移除复杂的兼容性代码，专注核心功能
+"""
+import os
+import re
+from dotenv import load_dotenv
+from typing import List
+try:
+    import PyPDF2
+except ImportError:
+    PyPDF2 = None
+
+try:
+    from docx import Document
+except ImportError:
+    Document = None
+
+load_dotenv()
+
+# 配置
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
+MILVUS_URI = os.getenv("MILVUS_URI", "tcp://localhost:19530")
+DATA_DIR = "./data"
+
+def extract_query_terms(query: str) -> List[str]:
+    """提取查询关键词，兼顾中文无空格的场景"""
+    # 先按常见分隔符切分
+    raw_tokens = re.split(r"[,\s，。！？：;；:?!()\[\]{}<>""'·、/\\]+", query)
+    keywords: List[str] = []
+
+    for token in raw_tokens:
+        token = token.strip()
+        if not token:
+            continue
+        # 纯中文且较长时，切成双字窗口，增强匹配机会
+        if re.fullmatch(r"[\u4e00-\u9fff]+", token) and len(token) >= 4:
+            keywords.extend([token[i:i+2] for i in range(len(token) - 1)])
+        else:
+            keywords.append(token)
+
+    # 去重并过滤长度过短的 token
+    keywords = [kw for kw in dict.fromkeys(keywords) if len(kw) >= 2]
+
+    # 如果依旧没有关键词，则退化为中文单字组合
+    if not keywords:
+        chars = re.findall(r"[\u4e00-\u9fff]", query)
+        keywords = [''.join(chars[i:i+2]) for i in range(len(chars) - 1)]
+
+    return keywords
+
+def create_sample_docs() -> List[str]:
+    """创建示例文档，用于演示"""
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
+
+    sample_file = os.path.join(DATA_DIR, "sample.txt")
+    if not os.path.exists(sample_file):
+        sample_content = """公司内部知识库示例
+
+一、公司政策
+1. 工作时间：周一至周五 9:00-18:00
+2. 年假制度：工作满1年享受5天年假
+3. 远程办公：特殊情况可申请远程办公
+
+二、技术规范
+1. 代码规范：遵循PEP8标准
+2. 版本控制：使用Git管理代码
+3. 测试要求：所有新功能需要编写单元测试
+
+三、项目流程
+1. 需求分析：与产品经理确认需求
+2. 开发实现：按照技术规范进行开发
+3. 代码审查：同事之间进行代码审查
+4. 部署上线：通过CI/CD流程部署
+
+四、常见问题
+1. VPN连接：使用公司提供的VPN服务
+2. 邮箱设置：使用企业邮箱系统
+3. 会议预定：使用公司的会议预定系统
+"""
+        with open(sample_file, 'w', encoding='utf-8') as f:
+            f.write(sample_content)
+
+    return [sample_file]
+
+class SimpleRAGEngine:
+    """简化的RAG引擎，仅使用本地文件和基本文本搜索"""
+
+    def __init__(self):
+        self.documents = {}
+        self.load_documents()
+
+    def extract_text_from_file(self, filepath: str) -> str:
+        """从不同格式的文件中提取文本"""
+        try:
+            ext = os.path.splitext(filepath)[1].lower()
+
+            if ext == '.txt' or ext == '.md':
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    return f.read()
+
+            elif ext == '.pdf' and PyPDF2 is not None:
+                text = ""
+                with open(filepath, 'rb') as f:
+                    reader = PyPDF2.PdfReader(f)
+                    for page in reader.pages:
+                        text += page.extract_text() + "\n"
+                return text
+
+            elif ext in ['.docx', '.doc'] and Document is not None:
+                doc = Document(filepath)
+                text = ""
+                for paragraph in doc.paragraphs:
+                    text += paragraph.text + "\n"
+                return text
+
+            else:
+                if ext in ['.pdf', '.docx', '.doc']:
+                    print(f"⚠️ 缺少{ext}文件处理依赖，请安装: PyPDF2 (PDF), python-docx (Word)")
+                else:
+                    print(f"⚠️ 不支持的文件格式: {ext}")
+                return ""
+
+        except Exception as e:
+            print(f"❌ 文件内容提取失败 {filepath}: {e}")
+            return ""
+
+    def load_documents(self):
+        """加载文档内容"""
+        # 确保有示例文档
+        create_sample_docs()
+
+        if os.path.exists(DATA_DIR):
+            for filename in os.listdir(DATA_DIR):
+                if filename.endswith(('.txt', '.md', '.pdf', '.docx', '.doc')):
+                    filepath = os.path.join(DATA_DIR, filename)
+                    try:
+                        content = self.extract_text_from_file(filepath)
+                        if content.strip():
+                            self.documents[filename] = content
+                            print(f"✅ 已加载文档: {filename}")
+                        else:
+                            print(f"⚠️ 文件内容为空或无法提取: {filename}")
+                    except Exception as e:
+                        print(f"❌ 加载文档失败 {filename}: {e}")
+
+    def search(self, query: str, top_k: int = 3) -> List[str]:
+        """改进的搜索算法：支持分词和关键词匹配"""
+        results = []
+        query_lower = query.lower()
+
+        # 提取查询中的关键词（增强中文匹配能力）
+        query_words = extract_query_terms(query_lower)
+
+        for filename, content in self.documents.items():
+            content_lower = content.lower()
+
+            # 1. 完整查询匹配
+            if query_lower in content_lower:
+                paragraphs = content.split('\n\n')
+                for paragraph in paragraphs:
+                    if query_lower in paragraph.lower():
+                        results.append(f"[{filename}] {paragraph.strip()}")
+                        if len(results) >= top_k:
+                            return results
+
+            # 2. 关键词匹配（如果完整匹配失败）
+            elif any(word in content_lower for word in query_words):
+                paragraphs = content.split('\n\n')
+                for paragraph in paragraphs:
+                    paragraph_lower = paragraph.lower()
+                    # 匹配包含多个关键词的段落
+                    matched_words = sum(1 for word in query_words if word in paragraph_lower)
+                    if matched_words >= min(2, len(query_words)):  # 至少匹配2个词或所有词
+                        results.append(f"[{filename}] {paragraph.strip()}")
+                        if len(results) >= top_k:
+                            return results
+
+        # 3. 如果还没有结果，返回包含任一关键词的内容
+        if not results and query_words:
+            for filename, content in self.documents.items():
+                content_lower = content.lower()
+                if any(word in content_lower for word in query_words):
+                    # 找到包含关键词的句子
+                    sentences = content.split('。')
+                    for sentence in sentences:
+                        sentence_lower = sentence.lower()
+                        if any(word in sentence_lower for word in query_words):
+                            results.append(f"[{filename}] {sentence.strip()}。")
+                            if len(results) >= top_k:
+                                return results
+
+        return results if results else ["未找到相关信息"]
+
+    def query(self, question: str) -> str:
+        """查询并生成回答"""
+        search_results = self.search(question)
+
+        if not search_results or search_results == ["未找到相关信息"]:
+            return "抱歉，我在知识库中没有找到相关信息。这个问题可能需要咨询相关部门同事。"
+
+        # 简单的回答生成
+        answer = f"根据知识库信息：\n\n"
+        for i, result in enumerate(search_results, 1):
+            answer += f"{i}. {result}\n\n"
+
+        answer += "以上是相关信息，如果需要更详细的解答，建议咨询相关部门同事。"
+        return answer
+
+# 全局实例
+_rag_engine = None
+
+def get_rag_engine():
+    """获取RAG引擎实例"""
+    global _rag_engine
+    if _rag_engine is None:
+        _rag_engine = SimpleRAGEngine()
+    return _rag_engine
+
+if __name__ == "__main__":
+    # 测试代码
+    engine = SimpleRAGEngine()
+    print("=== RAG引擎测试 ===")
+    test_queries = ["工作时间", "代码规范", "年假"]
+
+    for query in test_queries:
+        print(f"\n问题: {query}")
+        result = engine.query(query)
+        print(f"回答: {result}")
+        print("-" * 50)
+
+## File: /home/liaozhenhao/liao-warehouse/deepseek_rag_project/backend/simple_agent.py
+"""
+简化版智能体 - 移除复杂的 LangChain 依赖，专注核心对话功能
+"""
+import os
+import requests
+from typing import Dict, Any
+from dotenv import load_dotenv
+from simple_rag import get_rag_engine
+
+load_dotenv()
+
+class SimpleAgent:
+    """简化的智能体，整合RAG和DeepSeek API"""
+
+    def __init__(self):
+        self.api_key = os.getenv("DEEPSEEK_API_KEY")
+        self.base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+        self.rag_engine = get_rag_engine()
+
+    def _call_deepseek_api(self, messages: list) -> str:
+        """调用DeepSeek API"""
+        if not self.api_key or self.api_key == "your_deepseek_api_key_here":
+            return "DeepSeek API Key 未配置，请先设置 .env 文件中的 DEEPSEEK_API_KEY"
+
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+
+            data = {
+                "model": "deepseek-chat",
+                "messages": messages,
+                "temperature": 0.1,
+                "max_tokens": 4096
+            }
+
+            response = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=data,
+                timeout=30
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                return result["choices"][0]["message"]["content"]
+            else:
+                return f"API调用失败: {response.status_code} - {response.text}"
+
+        except Exception as e:
+            return f"调用DeepSeek API时出错: {str(e)}"
+
+    def invoke(self, query_input: Dict[str, Any]) -> Dict[str, Any]:
+        """处理用户查询"""
+        if isinstance(query_input, str):
+            user_query = query_input
+        else:
+            user_query = query_input.get("input", "")
+
+        if not user_query:
+            return {"output": "请输入您的问题。"}
+
+        # 首先尝试从RAG获取信息
+        rag_result = self.rag_engine.query(user_query)
+
+        # 构建系统提示词
+        system_prompt = """你是一个企业AI助手，帮助员工查询内部知识库。
+
+你的回答应该：
+1. 优先使用RAG检索到的内部信息
+2. 如果内部信息不够完整，可以结合常识给出补充建议
+3. 回答要简洁明了，分点列出
+4. 如果不确定，建议用户咨询相关部门同事
+
+现在有用户提问，同时提供了企业内部知识库的检索结果："""
+
+        # 构建消息
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"用户问题：{user_query}\n\n内部知识库检索结果：\n{rag_result}"}
+        ]
+
+        # 如果没有API key，直接返回RAG结果
+        if not self.api_key or self.api_key == "your_deepseek_api_key_here":
+            return {"output": rag_result}
+
+        # 调用DeepSeek API生成回答
+        enhanced_answer = self._call_deepseek_api(messages)
+        return {"output": enhanced_answer}
+
+# 全局实例
+_simple_agent = None
+
+def get_simple_agent():
+    """获取简单智能体实例"""
+    global _simple_agent
+    if _simple_agent is None:
+        _simple_agent = SimpleAgent()
+    return _simple_agent
+
+if __name__ == "__main__":
+    # 测试代码
+    agent = SimpleAgent()
+    print("=== 简单智能体测试 ===")
+    test_inputs = [
+        {"input": "公司的工作时间是什么？"},
+        {"input": "代码规范有什么要求？"},
+        {"input": "如何申请年假？"}
+    ]
+
+    for test_input in test_inputs:
+        print(f"\n问题: {test_input['input']}")
+        result = agent.invoke(test_input)
+        print(f"回答: {result['output']}")
+        print("-" * 60)
+
+## File: /home/liaozhenhao/liao-warehouse/deepseek_rag_project/backend/demo.py
+#!/usr/bin/env python3
+"""
+简化版 RAG 系统演示脚本
+运行这个脚本来测试整个系统功能
+"""
+import os
+import sys
+from dotenv import load_dotenv
+
+def print_banner():
+    """打印横幅"""
+    print("=" * 60)
+    print("🏢 DeepSeek 企业知识库 RAG 系统 - 简化版演示")
+    print("=" * 60)
+    print()
+
+def check_environment():
+    """检查环境配置"""
+    print("📋 检查环境配置...")
+
+    # 检查 .env 文件
+    if os.path.exists(".env"):
+        print("✅ .env 文件存在")
+    else:
+        print("⚠️  .env 文件不存在，将使用默认配置")
+        print("   可以复制 .env.example 文件创建 .env 文件")
+
+    # 检查数据目录
+    data_dir = "./data"
+    if os.path.exists(data_dir):
+        print("✅ 数据目录存在")
+        files = os.listdir(data_dir)
+        print(f"   包含 {len(files)} 个文件: {files}")
+    else:
+        print("⚠️  数据目录不存在，将自动创建")
+
+    # 检查 API Key
+    load_dotenv()
+    api_key = os.getenv("DEEPSEEK_API_KEY")
+    if api_key and api_key != "your_deepseek_api_key_here":
+        print("✅ DeepSeek API Key 已配置")
+    else:
+        print("⚠️  DeepSeek API Key 未配置，将使用本地搜索功能")
+
+    print()
+
+def test_rag_engine():
+    """测试RAG引擎"""
+    print("🔍 测试 RAG 搜索引擎...")
+    try:
+        from simple_rag import get_rag_engine
+
+        engine = get_rag_engine()
+
+        test_queries = ["工作时间", "年假制度", "代码规范"]
+
+        for query in test_queries:
+            print(f"\n❓ 问题: {query}")
+            result = engine.query(query)
+            print(f"📝 回答: {result[:100]}...")
+
+        print("✅ RAG 引擎测试通过")
+
+    except Exception as e:
+        print(f"❌ RAG 引擎测试失败: {e}")
+        return False
+
+    print()
+    return True
+
+def test_agent():
+    """测试智能体"""
+    print("🤖 测试智能体系统...")
+    try:
+        from simple_agent import get_simple_agent
+
+        agent = get_simple_agent()
+
+        test_input = {"input": "公司的年假制度是怎样的？"}
+        print(f"❓ 问题: {test_input['input']}")
+
+        result = agent.invoke(test_input)
+        print(f"📝 回答: {result['output'][:150]}...")
+
+        print("✅ 智能体测试通过")
+
+    except Exception as e:
+        print(f"❌ 智能体测试失败: {e}")
+        return False
+
+    print()
+    return True
+
+def test_server():
+    """测试服务器组件"""
+    print("🌐 测试后端服务器组件...")
+    try:
+        # 测试导入
+        from backend.server import app
+        print("✅ FastAPI 服务器模块导入成功")
+
+        # 这里可以添加更多测试
+        return True
+
+    except Exception as e:
+        print(f"❌ 服务器测试失败: {e}")
+        return False
+
+def show_usage():
+    """显示使用说明"""
+    print("🚀 启动说明:")
+    print("1. 启动后端服务器:")
+    print("   uvicorn backend.server:app --reload --port 8000")
+    print()
+    print("2. 启动前端界面:")
+    print("   cd frontend && npm install && npm run dev")
+    print()
+    print("3. 访问界面:")
+    print("   - React 前端: http://localhost:5173")
+    print("   - API 文档: http://localhost:8000/docs")
+    print("   - 健康检查: http://localhost:8000/health")
+    print()
+    print("💡 提示:")
+    print("   - 首次运行会自动创建示例文档")
+    print("   - 无需 Milvus 数据库即可使用基础功能")
+    print("   - 配置 DeepSeek API Key 可获得更好体验")
+    print("   - 使用 API 接口可直接测试核心功能")
+
+def main():
+    """主函数"""
+    print_banner()
+
+    # 检查环境
+    check_environment()
+
+    # 运行测试
+    all_tests_passed = True
+
+    all_tests_passed &= test_rag_engine()
+    all_tests_passed &= test_agent()
+    all_tests_passed &= test_server()
+
+    # 显示结果
+    print("=" * 60)
+    if all_tests_passed:
+        print("🎉 所有测试通过！系统已准备就绪。")
+    else:
+        print("⚠️  部分测试失败，请检查错误信息。")
+
+    print()
+    show_usage()
+
+if __name__ == "__main__":
+    main()
+
+## File: /home/liaozhenhao/liao-warehouse/deepseek_rag_project/backend/__init__.py
+"""
+DeepSeek RAG Backend Package
+
+This package contains the backend server and business logic for the RAG system.
+"""
+
+__version__ = "1.0.0"
+__author__ = "DeepSeek RAG Team"
+
+## File: /home/liaozhenhao/liao-warehouse/deepseek_rag_project/backend/requirements.txt
+# 基础依赖
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+pydantic==2.5.0
+python-dotenv==1.0.0
+
+# 异步文件操作
+aiofiles==23.2.1
+
+# 现有RAG相关依赖（保持兼容）
+openai==1.3.0
+langchain==0.0.340
+langchain-openai==0.0.2
+pymilvus==2.3.4
+sentence-transformers==2.2.2
+torch==2.1.0
+transformers==4.35.2
+
+# 文档处理
+PyPDF2==3.0.1
+python-docx==0.8.11
+
+# 其他工具
+requests==2.31.0
+numpy==1.24.3
+
+---
+*Backend code collection completed. All files have been organized with their absolute paths.*
