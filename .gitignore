@@ -24,3 +24,5 @@ yarn-error.log*
 Thumbs.db
 *.log
 EOF
+
+weather_assistant/
