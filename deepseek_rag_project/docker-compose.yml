@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  # 1. 向量数据库 (直接用官方镜像)
+  milvus-standalone:
+    container_name: milvus-standalone
+    image: milvusdb/milvus:v2.3.7-standalone
+    environment:
+      ETCD_USE_EMBED: true
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      COMMON_STORAGEPATH: /var/lib/milvus/data
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+
+  # 2. 后端服务
+  backend:
+    build: ./backend
+    container_name: rag-backend
+    restart: always
+    depends_on:
+      - milvus-standalone
+    environment:
+      # 在容器内部，访问 milvus 不能用 localhost，要用服务名
+      - MILVUS_URI=http://milvus-standalone:19530
+      - API_PORT=8000
+      # 这里先填占位符，真实部署时通过 secrets 注入
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY} 
+      - DEEPSEEK_BASE_URL=https://api.deepseek.com
+    volumes:
+      - ./data:/app/../data # 挂载数据目录，保证重启不丢数据
+
+  # 3. 前端服务
+  frontend:
+    build: ./frontend
+    container_name: rag-frontend
+    restart: always
+    ports:
+      - "80:80" # 浏览器访问 http://localhost
+    depends_on:
+      - backend

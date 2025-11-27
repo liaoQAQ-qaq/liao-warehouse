@@ -15,12 +15,13 @@ export default function Sidebar({ activeTab, setActiveTab, sessions, currentSess
         display: 'flex',
         flexDirection: 'column',
         padding: '20px',
+        // paddingBottom: '0', // 移除底部的 padding，交给内部容器控制
         boxShadow: '4px 0 24px rgba(0,0,0,0.02)',
         position: 'relative',
         zIndex: 10
       }}
     >
-      {/* 1. 品牌 Logo (更简约) */}
+      {/* 1. 品牌 Logo */}
       <motion.div 
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -40,7 +41,7 @@ export default function Sidebar({ activeTab, setActiveTab, sessions, currentSess
         </span>
       </motion.div>
 
-      {/* 2. 新建按钮 (更轻盈) */}
+      {/* 2. 新建按钮 */}
       <motion.button
         whileHover={{ scale: 1.02, translateY: -1 }}
         whileTap={{ scale: 0.98 }}
@@ -58,15 +59,16 @@ export default function Sidebar({ activeTab, setActiveTab, sessions, currentSess
           cursor: 'pointer',
           boxShadow: '0 4px 12px rgba(99, 102, 241, 0.25)',
           marginBottom: '32px',
-          transition: 'all 0.2s'
+          transition: 'all 0.2s',
+          flexShrink: 0 // 防止被压缩
         }}
       >
         <Plus size={18} strokeWidth={3} /> 
         <span>开启新对话</span>
       </motion.button>
 
-      {/* 3. 导航菜单 (更柔和) */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '32px' }}>
+      {/* 3. 导航菜单 */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '32px', flexShrink: 0 }}>
         {[
           { id: 'chat', icon: MessageSquare, label: '智能对话' },
           { id: 'upload', icon: FolderUp, label: '知识库管理' }
@@ -104,12 +106,13 @@ export default function Sidebar({ activeTab, setActiveTab, sessions, currentSess
         })}
       </div>
 
-      {/* 4. 历史记录 (更精致) */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* 4. 历史记录 (修复截断问题) */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
         <div style={{ 
           display: 'flex', alignItems: 'center', gap: '6px', 
           paddingLeft: '4px', marginBottom: '12px', 
-          color: '#94a3b8', fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px'
+          color: '#94a3b8', fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px',
+          flexShrink: 0
         }}>
           <History size={12} /> 最近记录
         </div>
@@ -117,8 +120,14 @@ export default function Sidebar({ activeTab, setActiveTab, sessions, currentSess
         <div 
           className="custom-scroll"
           style={{ 
-            flex: 1, overflowY: 'auto', paddingRight: '4px', 
-            display: 'flex', flexDirection: 'column', gap: '4px' 
+            flex: 1, 
+            overflowY: 'auto', 
+            paddingRight: '4px', 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: '4px',
+            // 🚀【核心修复】增加底部内边距，让最后一个元素能完整显示出来
+            paddingBottom: '20px' 
           }}
         >
           <AnimatePresence>
@@ -140,7 +149,8 @@ export default function Sidebar({ activeTab, setActiveTab, sessions, currentSess
                   background: currentSessionId === session.id ? 'white' : 'transparent',
                   boxShadow: currentSessionId === session.id ? '0 2px 8px rgba(0,0,0,0.04)' : 'none',
                   border: currentSessionId === session.id ? '1px solid rgba(0,0,0,0.02)' : '1px solid transparent',
-                  transition: 'all 0.2s'
+                  transition: 'all 0.2s',
+                  flexShrink: 0 // 防止 flex 挤压列表项
                 }}
               >
                 <span style={{ 
@@ -150,7 +160,7 @@ export default function Sidebar({ activeTab, setActiveTab, sessions, currentSess
                   {session.title || '无标题会话'}
                 </span>
                 
-                {/* 删除按钮 - 仅悬浮显示 */}
+                {/* 删除按钮 */}
                 <motion.button
                   whileHover={{ scale: 1.1, color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)' }}
                   onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
@@ -159,9 +169,9 @@ export default function Sidebar({ activeTab, setActiveTab, sessions, currentSess
                     padding: '4px', borderRadius: '6px',
                     color: '#cbd5e1',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    opacity: currentSessionId === session.id ? 1 : 0 // 选中时常显，未选中时隐藏(配合CSS hover显示)
+                    opacity: currentSessionId === session.id ? 1 : 0
                   }}
-                  className="delete-btn-hover" // 我们需要加一点 CSS 来处理未选中时的 hover 显示
+                  className="delete-btn-hover"
                 >
                   <Trash2 size={14} />
                 </motion.button>

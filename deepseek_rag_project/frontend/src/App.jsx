@@ -37,19 +37,16 @@ export default function App() {
     }
   };
 
-  // 🚀 删除会话
+  // 删除会话
   const handleDeleteSession = async (id) => {
     if (!confirm('确定要删除这条历史记录吗？')) return;
-
     try {
         const res = await fetch(`/api/sessions/${id}`, { method: 'DELETE' });
         if (res.ok) {
-            // 如果删除的是当前正在查看的会话，重置到新会话状态
             if (currentSessionId === id) {
                 setCurrentSessionId(null);
                 setMessages([]);
             }
-            // 刷新列表
             loadSessions();
         }
     } catch (e) {
@@ -57,39 +54,66 @@ export default function App() {
     }
   };
 
-  // 处理发送消息
-  const handleSendMessage = async (text, currentMsgs) => {
-    // ... (保持不变)
-    setMessages([...currentMsgs, { role: 'assistant', content: '' }]);
+  // 🚀【核心修改】处理发送消息 + 支持打断 + 自动捕获SessionID
+  const handleSendMessage = async (text, currentMsgs, controller) => {
+    setMessages([...currentMsgs, { role: 'assistant', content: '', sources: null }]);
     
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: text, session_id: currentSessionId })
+        body: JSON.stringify({ input: text, session_id: currentSessionId }),
+        signal: controller.signal
       });
+
+      // 🚀 关键修复：从响应头中获取 Session ID 并锁定状态
+      // 防止连续对话产生碎片
+      const newSessionId = res.headers.get('X-Session-Id');
+      if (newSessionId && newSessionId !== currentSessionId) {
+          setCurrentSessionId(newSessionId);
+          loadSessions(); // 刷新侧边栏
+      }
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let aiResponse = '';
+      let fullBuffer = ''; 
       
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        
         const chunk = decoder.decode(value, { stream: true });
-        aiResponse += chunk;
+        fullBuffer += chunk;
+        
+        let displayContent = fullBuffer;
+        let parsedSources = null;
+
+        if (fullBuffer.includes('__SOURCES__')) {
+            const parts = fullBuffer.split('__SOURCES__');
+            displayContent = parts[0];
+            try {
+                parsedSources = JSON.parse(parts[1]);
+            } catch (e) {
+                // JSON 传输中
+            }
+        }
+
         setMessages(prev => {
           const newArr = [...prev];
-          newArr[newArr.length - 1] = { role: 'assistant', content: aiResponse };
+          newArr[newArr.length - 1] = { 
+              role: 'assistant', 
+              content: displayContent,
+              sources: parsedSources
+          };
           return newArr;
         });
       }
-
-      if (!currentSessionId) {
-         loadSessions(); // 刷新会话列表
-      }
     } catch (e) {
-      console.error("Chat error:", e);
+      if (e.name === 'AbortError') {
+        console.log('生成已手动停止');
+      } else {
+        console.error("Chat error:", e);
+      }
     }
   };
 
@@ -102,7 +126,7 @@ export default function App() {
         currentSessionId={currentSessionId}
         onSessionSelect={switchSession}
         onNewSession={() => switchSession(null)}
-        onDeleteSession={handleDeleteSession} // 传递删除函数
+        onDeleteSession={handleDeleteSession}
       />
       
       {activeTab === 'chat' ? (

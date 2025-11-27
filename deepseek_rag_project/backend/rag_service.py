@@ -1,48 +1,98 @@
-from llama_index.core import PromptTemplate
+import json
+import re
+from config import Config
 from vector_store import get_vector_service
+from prompts import get_qa_prompt_template
+from llama_index.core import Settings
+from llama_index.core.llms import ChatMessage, MessageRole
 
 class RAGService:
     def __init__(self):
         self.vector_service = get_vector_service()
-        self.query_engine = self.vector_service.get_query_engine()
+        self.retriever = self.vector_service.index.as_retriever(similarity_top_k=5)
+        self.qa_prompt = get_qa_prompt_template()
+
+    def format_docs_with_id(self, nodes):
+        formatted_str = ""
+        file_groups = {}
         
-        # 提示词模板 (保持不变)
-        qa_prompt_tmpl_str = (
-            "你是一个智能且严谨的企业知识库助手。\n"
-            "你的任务是基于下方的[知识库]片段，回答用户的提问。\n"
-            "\n"
-            "---------------------\n"
-            "[知识库]:\n"
-            "{context_str}\n"
-            "---------------------\n"
-            "\n"
-            "用户问题: {query_str}\n"
-            "\n"
-            "[回答逻辑]:\n"
-            "1. **关于你的身份**：如果用户问“你是谁”、“介绍一下你自己”，请回答：“我是您的企业知识库AI助手，可以帮您分析简历、查询技术文档或解答公司政策。”\n"
-            "2. **关于用户的身份**：如果用户问“我是谁”、“我的名字是什么”、“介绍一下我”，请**立刻从[参考文档]中寻找**某人的简历、个人介绍或基本信息。\n"
-            "   - 如果找到了（例如看到了'姓名：廖振豪'），请回答：“根据文档，您应该是 **廖振豪**。您的基本情况如下……”并简要总结文档内容。\n"
-            "   - 如果文档里完全没有个人信息，请回答：“知识库中暂时没有找到关于您的个人信息文件。”\n"
-            "3. **其他问题**：直接根据知识库回答。如果文档里没有答案，请直接说“知识库中未找到相关信息”。\n"
-            "\n"
-            "回答: "
-        )
+        for node in nodes:
+            file_name = node.node.metadata.get("file_name", "未知文件")
+            score = node.score if node.score else 0.0
+            content = node.node.get_content().replace('\n', ' ')
+            
+            if file_name not in file_groups:
+                file_groups[file_name] = {"content": [], "max_score": 0.0}
+            
+            file_groups[file_name]["content"].append(content)
+            if score > file_groups[file_name]["max_score"]:
+                file_groups[file_name]["max_score"] = score
+
+        sorted_files = sorted(file_groups.items(), key=lambda x: x[1]['max_score'], reverse=True)
         
-        self.qa_prompt = PromptTemplate(qa_prompt_tmpl_str)
-        
-        self.query_engine.update_prompts(
-            {"response_synthesizer:text_qa_template": self.qa_prompt}
-        )
+        for idx, (file_name, data) in enumerate(sorted_files):
+            combined_content = "... ".join(data["content"])
+            formatted_str += f"[{idx+1}] (来源: {file_name}): {combined_content}\n\n"
+            
+        return formatted_str, sorted_files
 
     async def chat_stream(self, question: str):
-        """流式对话生成 (纯净版 - 异步非阻塞)"""
+        # 1. 检索
+        nodes_with_score = await self.retriever.aretrieve(question)
         
-        # 使用 aquery (异步查询)
-        streaming_response = await self.query_engine.aquery(question)
-        async for text in streaming_response.async_response_gen():
-            yield text
+        if not nodes_with_score:
+            yield "知识库中未找到相关信息。"
+            return
 
-# 单例
+        # 2. 格式化
+        context_str, sorted_files = self.format_docs_with_id(nodes_with_score)
+        
+        # 3. 组装 Prompt
+        fmt_prompt = self.qa_prompt.format(context_str=context_str, query_str=question)
+        
+        # 4. 调用 LLM
+        messages = [ChatMessage(role=MessageRole.USER, content=fmt_prompt)]
+        full_answer = ""
+        
+        response_gen = await Settings.llm.astream_chat(messages)
+        
+        async for response in response_gen:
+            content = response.delta
+            full_answer += content
+            yield content
+
+        # 5. 引用过滤逻辑 (增加图片豁免)
+        cited_indices = set()
+        matches = re.findall(r'\[(\d+)\]', full_answer)
+        for m in matches:
+            cited_indices.add(int(m))
+
+        source_data = []
+        for idx, (file_name, data) in enumerate(sorted_files):
+            current_id = idx + 1
+            
+            # 🚀【核心优化】图片特权逻辑
+            # 如果是图片且排第一，即使没被引用也显示（防止看图说话丢失来源）
+            is_image = file_name.lower().endswith(('.jpg', '.png', '.jpeg'))
+            is_top_result = (idx == 0)
+            
+            if current_id in cited_indices:
+                source_data.append({
+                    "id": current_id,
+                    "name": file_name,
+                    "score": round(data["max_score"], 2)
+                })
+            elif is_image and is_top_result:
+                source_data.append({
+                    "id": current_id,
+                    "name": file_name,
+                    "score": round(data["max_score"], 2)
+                })
+
+        # 6. 发送 JSON
+        if source_data:
+            yield f"__SOURCES__{json.dumps(source_data)}"
+
 _rag = None
 def get_rag_service():
     global _rag
