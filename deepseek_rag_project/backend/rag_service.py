@@ -71,7 +71,7 @@ class RAGService:
         for idx, (file_name, data) in enumerate(sorted_files):
             current_id = idx + 1
             
-            # 🚀【核心优化】图片特权逻辑
+            # 【核心优化】图片特权逻辑
             # 如果是图片且排第一，即使没被引用也显示（防止看图说话丢失来源）
             is_image = file_name.lower().endswith(('.jpg', '.png', '.jpeg'))
             is_top_result = (idx == 0)

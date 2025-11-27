@@ -22,7 +22,7 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
-    # 🚀 必须暴露自定义头，前端才能读取到 X-Session-Id
+    # 必须暴露自定义头，前端才能读取到 X-Session-Id
     expose_headers=["X-Session-Id"] 
 )
 
@@ -43,7 +43,7 @@ async def chat_endpoint(req: ChatRequest):
         rag = get_rag_service()
         full_answer = ""
         try:
-            # 🚀 上下文优化：获取最近的历史记录辅助检索
+            # 上下文优化：获取最近的历史记录辅助检索
             # 取最近的一条 AI 回复作为背景
             history = session_manager.get_messages(session_id)
             last_ai_msg = ""
@@ -70,7 +70,7 @@ async def chat_endpoint(req: ChatRequest):
             yield err_msg
             session_manager.add_message(session_id, "assistant", err_msg)
 
-    # 🚀 返回 Session ID
+    #返回 Session ID
     return StreamingResponse(
         response_generator(), 
         media_type="text/plain",
