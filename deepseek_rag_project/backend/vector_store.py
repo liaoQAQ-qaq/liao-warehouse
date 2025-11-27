@@ -139,9 +139,10 @@ class VectorStoreService:
 
             else:
                 # 普通文件
+                
                 documents = SimpleDirectoryReader(
-                    input_files=[filepath],
-                    file_extractor=self.file_extractor
+                    input_files=[filepath], #加载指定文件
+                    file_extractor=self.file_extractor #使用对应的文件读取器解析对应格式文件
                 ).load_data()
                 
                 for doc in documents:
