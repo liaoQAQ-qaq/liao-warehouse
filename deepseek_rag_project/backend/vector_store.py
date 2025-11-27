@@ -15,20 +15,17 @@ import llama_index.llms.openai.utils as openai_utils
 import os
 import logging
 
-# 屏蔽 PaddleOCR 的调试日志
-logging.getLogger("ppocr").setLevel(logging.WARNING)
-
 # 1. 注册 DeepSeek
 openai_utils.ALL_AVAILABLE_MODELS[Config.LLM_MODEL] = Config.CONTEXT_WINDOW
 openai_utils.CHAT_MODELS[Config.LLM_MODEL] = Config.CONTEXT_WINDOW
 
-# 2. 尝试导入 PaddleOCR
+# 2. 尝试导入 RapidOCR (替换原有的 PaddleOCR)
 try:
-    from paddleocr import PaddleOCR
-    HAS_PADDLE = True
+    from rapidocr_onnxruntime import RapidOCR
+    HAS_OCR = True
 except ImportError:
-    HAS_PADDLE = False
-    print("⚠️ 未检测到 paddleocr，图片功能将禁用。")
+    HAS_OCR = False
+    print("⚠️ 未检测到 rapidocr_onnxruntime，图片功能将禁用。")
 
 try:
     from llama_index.readers.file import FlatReader, PDFReader, DocxReader
@@ -39,26 +36,15 @@ class VectorStoreService:
     def __init__(self):
         print(f"⚙️ 初始化 LlamaIndex (模型: {Config.EMBEDDING_MODEL})...")
         
-        # 3. 初始化 PaddleOCR
+        # 3. 初始化 RapidOCR
         self.ocr_engine = None
-        if HAS_PADDLE:
+        if HAS_OCR:
             try:
-                print("👁️ 初始化 PaddleOCR (中文模式)...")
-                # 🚀【初始化】只使用最基础、最稳健的参数
-                self.ocr_engine = PaddleOCR(
-                    use_angle_cls=True, # 开启方向检测
-                    lang="ch"           # 中文模式
-                )
-                print("✅ PaddleOCR 初始化成功")
+                print("👁️ 初始化 RapidOCR...")
+                self.ocr_engine = RapidOCR()
+                print("✅ RapidOCR 初始化成功")
             except Exception as e:
-                print(f"❌ PaddleOCR 初始化尝试失败: {e}")
-                # 绝地求生模式：什么参数都不传，只求能跑
-                try:
-                    print("⚠️ 尝试无参数初始化...")
-                    self.ocr_engine = PaddleOCR(lang="ch")
-                    print("✅ PaddleOCR 降级初始化成功")
-                except:
-                    print("❌ OCR 彻底不可用")
+                print(f"❌ RapidOCR 初始化失败: {e}")
         
         # 4. Embedding
         Settings.embed_model = HuggingFaceEmbedding(
@@ -128,18 +114,17 @@ class VectorStoreService:
                     print("❌ OCR 引擎未启动，无法识别图片")
                     return False
                 
-                print("👁️ 正在进行深度 OCR 识别 (PaddleOCR)...")
+                print("👁️ 正在进行 OCR 识别 (RapidOCR)...")
                 
-                # 🚀【关键修复】直接调用，不传 cls=True
-                # 因为初始化时已经指定了 use_angle_cls=True，这里不需要再传
-                result = self.ocr_engine.ocr(filepath)
+                # RapidOCR 调用方式
+                result, _ = self.ocr_engine(filepath)
                 
                 ocr_text = ""
-                # 处理返回结果
-                if result and result[0]:
-                    for line in result[0]:
-                        if line and len(line) > 1:
-                            text = line[1][0]
+                # 处理返回结果: RapidOCR 返回 [[box], text, score]
+                if result:
+                    for line in result:
+                        if line and len(line) >= 2:
+                            text = line[1]
                             ocr_text += text + "\n"
                 
                 print(f"📝 识别结果预览: {ocr_text[:100].replace(chr(10), ' ')}...")

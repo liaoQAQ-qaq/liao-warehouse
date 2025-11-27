@@ -15,13 +15,15 @@ numpy<2.0.0
 tenacity<9.0.0
 
 # 关键修复 3：使用 LlamaIndex 0.10.x 黄金稳定版
-# 不要使用最新版，因为插件还没跟上
 llama-index==0.10.55
 llama-index-core==0.10.55
 llama-index-llms-openai==0.1.24
 llama-index-embeddings-huggingface==0.2.2
 llama-index-vector-stores-milvus==0.1.10
 llama-index-readers-file==0.1.25
+
+# OCR (新增 RapidOCR，移除 PaddleOCR 相关依赖)
+rapidocr_onnxruntime
 
 # 基础工具
 pymilvus>=2.3.0
