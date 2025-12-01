@@ -1,5 +1,3 @@
--i https://pypi.tuna.tsinghua.edu.cn/simple
-
 # 基础框架
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
@@ -8,22 +6,27 @@ pydantic>=2.6.0
 python-dotenv
 aiofiles
 
-# 关键修复 1：锁定 Numpy < 2.0 防止冲突
+# 关键修复：锁定 Numpy < 2.0 防止冲突
 numpy<2.0.0
-
-# 关键修复 2：锁定 Tenacity < 9.0.0 (解决 legacy 包报错)
 tenacity<9.0.0
 
-# 关键修复 3：使用 LlamaIndex 0.10.x 黄金稳定版
+# LlamaIndex 核心组件
 llama-index==0.10.55
 llama-index-core==0.10.55
-llama-index-llms-openai==0.1.24
 llama-index-embeddings-huggingface==0.2.2
 llama-index-vector-stores-milvus==0.1.10
 llama-index-readers-file==0.1.25
 
-# OCR (新增 RapidOCR，移除 PaddleOCR 相关依赖)
+# 🚀 新增：本地模型支持 (Ollama)
+llama-index-llms-ollama
+
+# 🚀 新增：OCR 与 视频处理
 rapidocr_onnxruntime
+opencv-python-headless
+moviepy
+faster-whisper
+timm
+einops
 
 # 基础工具
 pymilvus>=2.3.0
