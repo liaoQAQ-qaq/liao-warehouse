@@ -1,0 +1,39 @@
+docker search 名称  // 搜索命令
+
+docker pull 名称    //下载命令	
+
+docker run -t centos /bin/bash   启动并且进入容器  -p  9000:80  端口映射，端口暴露
+
+exit  停止并退出容器
+
+ctrl + q + p  不停止容器退出
+
+docker  ps  -a  -n=? -q  // 列出当前正在运行的容器
+
+docker rm 容器ID  // 删除容器
+
+docker logs -tf --tail 容器id  // 打印日志
+
+docker inspect 容器id  //   查看镜像的元数据
+
+docker exec -it 容器id  // 进入容器后开启一个新的终端，可以在里面操作（常用）
+
+docker attach 容器id  // 进入容器正在执行的终端
+
+docker cp 容器id ：容器内路径
+
+touch test.java  // 在容器里面新建一个文件
+
+ curl localhost:9000  自测端口
+
+docker commit  // 提交容器成为一个新的副本
+
+docker commit -m="提交的描述信息" -a="作者"  容器id 目标镜像名：容器名
+
+
+
+
+
+8.152.98.146
+lwzlylzhck1314..
+

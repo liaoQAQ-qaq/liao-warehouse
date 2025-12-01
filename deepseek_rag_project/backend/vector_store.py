@@ -130,6 +130,7 @@ class VectorStoreService:
                 print(f"📝 识别结果预览: {ocr_text[:100].replace(chr(10), ' ')}...")
                 
                 if not ocr_text.strip():
+                    #去除前后空白字符   
                     print("⚠️ OCR 未识别到有效文字")
                     return False
 

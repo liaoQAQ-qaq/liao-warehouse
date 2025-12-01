@@ -37,7 +37,7 @@ class RAGService:
         return formatted_str, sorted_files
 
     async def chat_stream(self, question: str):
-        # 1. 检索
+        # 1. 检索，检索结果列表
         nodes_with_score = await self.retriever.aretrieve(question)
         
         if not nodes_with_score:

@@ -43,21 +43,15 @@ async def chat_endpoint(req: ChatRequest):
         rag = get_rag_service()
         full_answer = ""
         try:
-            # 上下文优化：获取最近的历史记录辅助检索
-            # 取最近的一条 AI 回复作为背景
-            history = session_manager.get_messages(session_id)
-            last_ai_msg = ""
-            if len(history) >= 2: # 至少有一问一答
-                # 倒数第一条是刚存入的用户问题，倒数第二条是上次的AI回答
-                if history[-2]['role'] == 'assistant':
-                    last_ai_msg = history[-2]['content']
-
-            # 将上下文传递给 rag_service (需要 rag_service 支持可选参数，或者简单的做法：拼接到 query)
-            # 这里我们采用最稳妥的方案：仅在检索时使用拼接后的 query，但 Prompt 里还是用原始 query
-            # 这一步在 rag_service 内部实现比较好，为了不改动太多，我们这里只负责传参
-            # 但目前的 rag_service.chat_stream 只接受一个参数
-            # 所以我们在 server 层不做拼接，保持简单，把“多轮对话能力”留给大模型自己去理解上下文
-            # (LlamaIndex 的 ChatEngine 本身就有记忆，但在我们的自定义 RAG 流程中，主要靠 Prompt)
+            # # 上下文优化：获取最近的历史记录辅助检索
+            # # 取最近的一条 AI 回复作为背景
+            # history = session_manager.get_messages(session_id)
+            # last_ai_msg = ""
+            # if len(history) >= 2: # 至少有一问一答
+            #     # 倒数第一条是刚存入的用户问题，倒数第二条是上次的AI回答
+            #     if history[-2]['role'] == 'assistant':
+            #         last_ai_msg = history[-2]['content']
+            # # (LlamaIndex 的 ChatEngine 本身就有记忆，但在我们的自定义 RAG 流程中，主要靠 Prompt)
             
             async for chunk in rag.chat_stream(req.input):
                 full_answer += chunk

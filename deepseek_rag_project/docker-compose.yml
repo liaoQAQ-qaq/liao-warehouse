@@ -1,10 +1,9 @@
-version: '3.8'
-
 services:
-  # 1. 向量数据库 (直接用官方镜像)
+  # 1. 向量数据库
   milvus-standalone:
     container_name: milvus-standalone
-    image: milvusdb/milvus:v2.3.7-standalone
+    # 🚀【修正】官方 v2.3.x 之后的镜像标签不再带 -standalone 后缀
+    image: milvusdb/milvus:v2.3.7
     environment:
       ETCD_USE_EMBED: true
       ETCD_DATA_DIR: /var/lib/milvus/etcd
@@ -30,11 +29,13 @@ services:
       # 在容器内部，访问 milvus 不能用 localhost，要用服务名
       - MILVUS_URI=http://milvus-standalone:19530
       - API_PORT=8000
-      # 这里先填占位符，真实部署时通过 secrets 注入
+      # 🚀 这里读取宿主机环境变量，请确保根目录有 .env 文件或在终端 export 了该变量
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY} 
       - DEEPSEEK_BASE_URL=https://api.deepseek.com
     volumes:
-      - ./data:/app/../data # 挂载数据目录，保证重启不丢数据
+      # 🚀 挂载数据目录：宿主机 ./data -> 容器 /data
+      # 这样你的 SQLite 数据库(sessions.db)和上传的文件都能持久化保存
+      - ./data:/app/../data
 
   # 3. 前端服务
   frontend:
@@ -42,6 +43,6 @@ services:
     container_name: rag-frontend
     restart: always
     ports:
-      - "80:80" # 浏览器访问 http://localhost
+      - "80:80" # 浏览器访问 http://localhost 或 http://服务器IP
     depends_on:
       - backend
