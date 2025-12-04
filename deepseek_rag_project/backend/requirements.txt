@@ -28,7 +28,7 @@ faster-whisper
 timm
 einops
 accelerate
-
+z
 # 基础工具
 pymilvus>=2.3.0
 torch>=2.2.0
