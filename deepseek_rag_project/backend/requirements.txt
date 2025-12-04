@@ -27,6 +27,7 @@ moviepy
 faster-whisper
 timm
 einops
+accelerate
 
 # 基础工具
 pymilvus>=2.3.0

@@ -1,101 +1,105 @@
-import json
-import re
+import logging
+from llama_index.core import VectorStoreIndex, StorageContext, Settings
+from llama_index.vector_stores.milvus import MilvusVectorStore
+from llama_index.llms.ollama import Ollama
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from config import Config
-from vector_store import get_vector_service
-from prompts import get_qa_prompt_template
-from llama_index.core import Settings
-from llama_index.core.llms import ChatMessage, MessageRole
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class RAGService:
     def __init__(self):
-        self.vector_service = get_vector_service()
-        self.retriever = self.vector_service.index.as_retriever(similarity_top_k=5)
-        self.qa_prompt = get_qa_prompt_template()
-
-    def format_docs_with_id(self, nodes):
-        formatted_str = ""
-        file_groups = {}
+        logger.info("🤖 初始化 RAG 服务...")
         
-        for node in nodes:
-            file_name = node.node.metadata.get("file_name", "未知文件")
-            score = node.score if node.score else 0.0
-            content = node.node.get_content().replace('\n', ' ')
-            
-            if file_name not in file_groups:
-                file_groups[file_name] = {"content": [], "max_score": 0.0}
-            
-            file_groups[file_name]["content"].append(content)
-            if score > file_groups[file_name]["max_score"]:
-                file_groups[file_name]["max_score"] = score
-
-        sorted_files = sorted(file_groups.items(), key=lambda x: x[1]['max_score'], reverse=True)
+        # 1. 确保 Embedding 模型加载
+        if Settings.embed_model is None:
+            Settings.embed_model = HuggingFaceEmbedding(
+                model_name=Config.EMBEDDING_MODEL,
+                cache_folder="./model_cache"
+            )
         
-        for idx, (file_name, data) in enumerate(sorted_files):
-            combined_content = "... ".join(data["content"])
-            formatted_str += f"[{idx+1}] (来源: {file_name}): {combined_content}\n\n"
-            
-        return formatted_str, sorted_files
+        # 2. 设置 LLM (DeepSeek via Ollama)
+        # 保持 300s 或 600s 超时，防止 CPU 慢导致断连
+        Settings.llm = Ollama(
+            model=Config.LLM_MODEL, 
+            base_url=Config.LLM_API_BASE,
+            request_timeout=600.0,
+            temperature=0.3 # 较低温度，减少幻觉
+        )
 
-    async def chat_stream(self, question: str):
-        # 1. 检索，检索结果列表
-        nodes_with_score = await self.retriever.aretrieve(question)
-        
-        if not nodes_with_score:
-            yield "知识库中未找到相关信息。"
+        # 3. 连接 Milvus 向量库
+        try:
+            vector_store = MilvusVectorStore(
+                uri=Config.MILVUS_URI,
+                collection_name=Config.COLLECTION_NAME,
+                dim=Config.EMBEDDING_DIM,
+                overwrite=False
+            )
+            storage_context = StorageContext.from_defaults(vector_store=vector_store)
+            self.index = VectorStoreIndex.from_vector_store(
+                vector_store=vector_store,
+                storage_context=storage_context
+            )
+            logger.info("✅ RAG 索引加载成功")
+        except Exception as e:
+            logger.error(f"❌ RAG 初始化失败: {e}")
+            self.index = None
+
+    # 🚀 核心修改：增加 context 参数，用于接收临时视频报告
+    async def chat_stream(self, query: str, context: str = ""):
+        if not self.index:
+            yield "系统初始化失败，无法回答。\n"
             return
 
-        # 2. 格式化
-        context_str, sorted_files = self.format_docs_with_id(nodes_with_score)
+        logger.info(f"🤔 收到提问: {query}")
         
-        # 3. 组装 Prompt
-        fmt_prompt = self.qa_prompt.format(context_str=context_str, query_str=question)
-        
-        # 4. 调用 LLM
-        messages = [ChatMessage(role=MessageRole.USER, content=fmt_prompt)]
-        full_answer = ""
-        
-        response_gen = await Settings.llm.astream_chat(messages)
-        
-        async for response in response_gen:
-            content = response.delta
-            full_answer += content
-            yield content
+        try:
+            # 🚀 动态构建 System Prompt
+            # 基础规则
+            base_prompt = (
+                "你是一个多模态视频分析助手。请根据提供的上下文信息回答问题。\n"
+                "【通用规则】\n"
+                "1. 区分'界面'和'剧情'：如果视觉描述包含 screenshot/interface，说明是屏幕录制，请重点描述用户操作行为，而不是复述屏幕上的文字内容。\n"
+                "2. 区分'实拍'：如果视觉描述包含 dog/person/scenery，说明是实拍，请直接描述画面动作。\n"
+                "3. 请用中文回答。"
+            )
 
-        # 5. 引用过滤逻辑 (增加图片豁免)
-        cited_indices = set()
-        matches = re.findall(r'\[(\d+)\]', full_answer)
-        for m in matches:
-            cited_indices.add(int(m))
+            # 如果存在临时上下文（刚刚在聊天框上传的视频），将其注入 Prompt 并设为最高优先级
+            if context:
+                logger.info("📎 检测到临时视频上下文，已注入 Prompt")
+                system_prompt_str = (
+                    f"{base_prompt}\n\n"
+                    "【⚠️ 当前重点关注的视频/文件分析报告】：\n"
+                    "--------------------------------------------------\n"
+                    f"{context}\n"
+                    "--------------------------------------------------\n"
+                    "请优先根据上述【视频分析报告】的内容回答用户问题。\n"
+                    "用户的提问（如'这个视频'、'它'）通常指代上述报告中的内容。"
+                )
+            else:
+                # 只有 RAG 知识库的情况
+                system_prompt_str = f"{base_prompt}\n请根据检索到的知识库文档回答问题。"
 
-        source_data = []
-        for idx, (file_name, data) in enumerate(sorted_files):
-            current_id = idx + 1
+            # 创建聊天引擎
+            chat_engine = self.index.as_chat_engine(
+                chat_mode="context",
+                system_prompt=system_prompt_str,
+                similarity_top_k=5
+            )
             
-            # 【核心优化】图片特权逻辑
-            # 如果是图片且排第一，即使没被引用也显示（防止看图说话丢失来源）
-            is_image = file_name.lower().endswith(('.jpg', '.png', '.jpeg'))
-            is_top_result = (idx == 0)
-            
-            if current_id in cited_indices:
-                source_data.append({
-                    "id": current_id,
-                    "name": file_name,
-                    "score": round(data["max_score"], 2)
-                })
-            elif is_image and is_top_result:
-                source_data.append({
-                    "id": current_id,
-                    "name": file_name,
-                    "score": round(data["max_score"], 2)
-                })
+            # 开始流式生成
+            response = chat_engine.stream_chat(query)
+            for token in response.response_gen:
+                yield token
 
-        # 6. 发送 JSON
-        if source_data:
-            yield f"__SOURCES__{json.dumps(source_data)}"
+        except Exception as e:
+            logger.error(f"❌ 生成答案时出错: {e}")
+            yield f"\n[系统错误: {str(e)}]"
 
-_rag = None
+_rag_service = None
 def get_rag_service():
-    global _rag
-    if _rag is None:
-        _rag = RAGService()
-    return _rag
+    global _rag_service
+    if _rag_service is None:
+        _rag_service = RAGService()
+    return _rag_service
