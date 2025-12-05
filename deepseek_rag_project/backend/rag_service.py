@@ -1,18 +1,19 @@
 import logging
-from llama_index.core import VectorStoreIndex, StorageContext, Settings
+from llama_index.core import VectorStoreIndex, Settings
 from llama_index.core.llms import ChatMessage, MessageRole
-from llama_index.vector_stores.milvus import MilvusVectorStore
-from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.llms.ollama import Ollama
+from llama_index.vector_stores.milvus import MilvusVectorStore
 from config import Config
 from session_manager import session_manager
+from prompts import build_system_prompt
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class RAGService:
     def __init__(self):
-        logger.info("🤖 初始化 RAG 服务 (智能过滤版)...")
+        logger.info("🤖 初始化 RAG 服务 (7B 极速版)...")
         
         try:
             logger.info(f"🔌 加载 Embedding: {Config.EMBEDDING_MODEL}")
@@ -22,17 +23,28 @@ class RAGService:
             )
             
             logger.info(f"🧠 连接 LLM: {Config.LLM_MODEL}")
+            # 🚀【核心优化】手动调优 Ollama 参数
             Settings.llm = Ollama(
                 model=Config.LLM_MODEL, 
                 base_url=Config.LLM_API_BASE,
                 request_timeout=300.0, 
-                temperature=0.3, # 降低温度，减少胡编乱造
-                context_window=8192,
-                additional_kwargs={"num_ctx": 8192} 
+                temperature=0.3, 
+                context_window=Config.CONTEXT_WINDOW,
+                additional_kwargs={
+                    "num_ctx": Config.CONTEXT_WINDOW,
+                    # 🔥【关键】限制推理线程数
+                    # 32核 CPU 并不意味着 num_thread=32 最快。
+                    # 通常 8-16 之间是内存带宽的甜点。建议设为 12。
+                    "num_thread": 12, 
+                    "num_predict": -1,
+                } 
             )
         except Exception as e:
             logger.error(f"❌ 模型加载失败: {e}")
             raise e
+
+        # 移除 Reranker，追求极致响应速度
+        self.reranker = None 
 
         try:
             vector_store = MilvusVectorStore(
@@ -52,64 +64,41 @@ class RAGService:
             yield "系统初始化失败，无法连接到知识库。\n"
             return
 
-        # 🚀 1. 智能检索 (带阈值过滤)
-        logger.info(f"🔍 开始检索: {query[:20]}")
         knowledge_text = ""
-        try:
-            # 获取检索器
-            retriever = self.index.as_retriever(similarity_top_k=3)
-            nodes = retriever.retrieve(query)
-            
-            valid_nodes = []
-            # 🔧【核心修复】过滤低相关度文档
-            # score 通常在 0~1 之间 (余弦相似度)，根据 bge-m3 模型，0.4-0.5 是个合理的门槛
-            # 如果是 L2 距离，逻辑则相反。Milvus 默认行为取决于 metric_type。
-            # 这里假设是相关度分数，越离谱的内容分数越低。
-            # 简单策略：如果不为空，先通过。更高级策略需打印 node.score 观察。
-            
-            if nodes:
-                # 拼接检索到的文档
-                # 🔧【修复幻觉】明确标注这是“可能相关”的资料
-                knowledge_lines = []
-                for i, n in enumerate(nodes):
-                    # 这里可以加 score 判断: if n.score > 0.5:
-                    knowledge_lines.append(f"---资料 {i+1} (仅供参考)---\n{n.get_content()}")
-                
-                if knowledge_lines:
-                    knowledge_text = "\n\n".join(knowledge_lines)
-            
-            if not knowledge_text:
-                knowledge_text = "（未检索到高相关性文档，请忽略此部分）"
-                
-        except Exception as e:
-            print(f"❌ 检索失败: {e}")
-            knowledge_text = ""
-
-        # 🚀 2. 构建消息列表 (Prompt Engineering 优化)
-        chat_messages = []
-
-        # --- A. System Message ---
-        # 🔧【核心修复】彻底重写 Prompt，明确优先级
-        system_prompt_content = (
-            "你是一个专业的企业智能助手。\n"
-            "【核心指令】\n"
-            "1. 你的任务是回答用户问题。信息来源有两个：【视频分析报告】和【知识库参考资料】。\n"
-            "2. ⚠️ **优先级判断**：\n"
-            "   - 如果用户问的是关于**画面内容**（如“视频里有什么”、“发生了什么”），**必须只使用【视频分析报告】**，**严禁**使用【参考资料】中的无关内容。\n"
-            "   - 只有当用户询问具体的企业政策、技术文档且视频里没有时，才参考【参考资料】。\n"
-            "   - 如果【参考资料】与用户问题明显无关（例如问风景却给了SSH教程），**请彻底忽略资料**，不要强行关联。\n"
-            "3. 严禁提及模型自身版本信息。\n\n"
-        )
         
+        # 1. 上下文互斥策略 (有视频就不查文档)
         if context:
-            system_prompt_content += f"=== 🎥 当前视频/图片分析报告 (最高优先级) ===\n{context}\n\n"
-        
-        if knowledge_text:
-            system_prompt_content += f"=== 📚 知识库参考资料 (仅在相关时参考，无关请忽略) ===\n{knowledge_text}"
+            logger.info("🎥 检测到视频上下文，跳过 RAG 检索。")
+            knowledge_text = "" 
+        else:
+            logger.info(f"🔍 开始检索知识库: {query[:20]}")
+            try:
+                # 🚀【优化】只取 Top 2
+                # 7B 模型阅读速度快，Top 2 (约 700 tokens) 可以在 1-2秒内读完。
+                # 既保证了有足够的资料，又不会让预处理时间太长。
+                retriever = self.index.as_retriever(similarity_top_k=2)
+                nodes = retriever.retrieve(query)
+                
+                if nodes:
+                    knowledge_lines = []
+                    for i, n in enumerate(nodes):
+                        knowledge_lines.append(f"---资料 {i+1} (仅供参考)---\n{n.get_content()}")
+                    
+                    if knowledge_lines:
+                        knowledge_text = "\n\n".join(knowledge_lines)
+                
+                if not knowledge_text:
+                    knowledge_text = "（未检索到高相关性文档，请忽略此部分）"
+                    
+            except Exception as e:
+                logger.error(f"❌ 检索失败: {e}")
+                knowledge_text = ""
 
-        chat_messages.append(ChatMessage(role=MessageRole.SYSTEM, content=system_prompt_content))
+        # 2. 构建消息
+        chat_messages = []
+        system_content = build_system_prompt(video_context=context, rag_context=knowledge_text)
+        chat_messages.append(ChatMessage(role=MessageRole.SYSTEM, content=system_content))
 
-        # --- B. History Messages ---
         history_data = session_manager.get_messages(session_id)
         for msg in history_data[-4:]:
             role = MessageRole.USER if msg["role"] == "user" else MessageRole.ASSISTANT
@@ -117,16 +106,17 @@ class RAGService:
                 clean_content = msg["content"].replace("<think>", "").replace("</think>", "")
                 chat_messages.append(ChatMessage(role=role, content=clean_content))
 
-        # --- C. User Message ---
         chat_messages.append(ChatMessage(role=MessageRole.USER, content=query))
 
+        # 3. 异步流式生成
         try:
-            print(f"🚀 [DEBUG] 向 Ollama 发送 {len(chat_messages)} 条消息...", flush=True)
+            logger.info(f"🚀 向 Ollama 发送请求 (Thread=12, Ctx={Config.CONTEXT_WINDOW})...")
             
-            response_stream = Settings.llm.stream_chat(chat_messages)
+            # 使用 astream_chat 确保非阻塞
+            response_stream = await Settings.llm.astream_chat(chat_messages)
             
             has_content = False
-            for chunk in response_stream:
+            async for chunk in response_stream:
                 content = chunk.delta
                 if content:
                     has_content = True

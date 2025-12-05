@@ -77,7 +77,7 @@ class VectorStoreService:
 
         Settings.embed_model = embed_model
 
-        # 2. 设置 LLM (DeepSeek via Ollama)
+        # 2. 设置 LLM (DeepSeek/Qwen via Ollama)
         Settings.llm = Ollama(
             model=Config.LLM_MODEL,
             base_url=Config.LLM_API_BASE,
@@ -89,12 +89,26 @@ class VectorStoreService:
             chunk_overlap=Config.CHUNK_OVERLAP
         )
         
-        logger.info(f"🔌 连接 Milvus: {Config.MILVUS_URI}")
+        # 🚀 优化3: 强制使用 HNSW 高速索引
+        # HNSW 是目前内存中检索速度最快、精度最高的算法
+        logger.info(f"🔌 连接 Milvus (HNSW Accelerated): {Config.MILVUS_URI}")
         self.vector_store = MilvusVectorStore(
             uri=Config.MILVUS_URI,
             collection_name=Config.COLLECTION_NAME,
             dim=Config.EMBEDDING_DIM,
-            overwrite=False
+            overwrite=False,
+            # 🔥 核心优化点：定义 HNSW 索引参数
+            index_config={
+                "index_type": "HNSW",
+                "metric_type": "COSINE", # 余弦相似度
+                "params": {
+                    "M": 16,             # 节点最大连接数 (8-32, 越大精度越高但构建越慢)
+                    "efConstruction": 64 # 构建时的搜索深度 (64-200)
+                }
+            },
+            search_config={
+                "params": {"ef": 64}     # 搜索时的候选集大小
+            }
         )
         
         self.milvus_client = MilvusClient(uri=Config.MILVUS_URI)
@@ -158,7 +172,7 @@ class VectorStoreService:
                 for doc in documents:
                     doc.metadata["file_name"] = filename
 
-            # 🚀 优化3: 批量插入 (Batch Insert)
+            # 🚀 优化4: 批量插入 (Batch Insert)
             # 虽然这里是一次 insert 一个文件的所有 docs，但 index.insert 内部会触发 embedding batching
             if documents:
                 logger.info(f"   ⚡ 正在向量化 {len(documents)} 个文档片段...")

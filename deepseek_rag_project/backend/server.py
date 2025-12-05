@@ -1,7 +1,8 @@
 import os
 import shutil
+import threading
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException, Form
-# 🚀 引入 run_in_threadpool 用于解决阻塞问题
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -18,7 +19,30 @@ from video_service import get_video_service
 
 Config.validate()
 
-app = FastAPI(title="DeepSeek RAG Enterprise (Video Enabled)")
+# 🚀【新增】生命周期管理器：服务启动时自动预加载模型
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("\n🚀 [System] 正在后台预加载 AI 模型，请稍候...")
+    
+    # 1. 在后台线程预加载 VideoService (视觉+听觉模型)
+    # 这样用户上传视频时不需要等待 1 分钟的模型加载时间
+    def preload_models():
+        try:
+            video_svc = get_video_service()
+            # 强制触发加载
+            video_svc._load_models_if_needed()
+            print("✅ [System] 视觉与听觉模型预加载完成！")
+        except Exception as e:
+            print(f"❌ [System] 模型预加载失败: {e}")
+
+    # 启动后台线程进行加载，不阻塞 Server 启动
+    threading.Thread(target=preload_models, daemon=True).start()
+    
+    yield
+    # 服务关闭时的清理逻辑 (如果有)
+    print("👋 [System] 服务正在关闭...")
+
+app = FastAPI(title="DeepSeek RAG Enterprise", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,19 +56,17 @@ class ChatRequest(BaseModel):
     input: str
     session_id: Optional[str] = None
 
-# 后台任务：处理永久入库的视频 (对应左侧上传)
+# 后台任务：处理永久入库的视频
 def process_video_task(file_path: str, filename: str):
     try:
         video_svc = get_video_service()
         vector_svc = get_vector_service()
-        # 这里已经是后台线程了，直接调用即可
         report = video_svc.process_video(file_path)
         vector_svc.insert_text(report, filename)
         print(f"✅ 视频 {filename} 处理并入库完成")
     except Exception as e:
         print(f"❌ 视频处理后台任务失败: {e}")
 
-# 🚀 优化接口：使用 run_in_threadpool 防止阻塞主线程
 @app.post("/api/chat/upload")
 async def upload_chat_file(
     file: UploadFile = File(...), 
@@ -61,8 +83,7 @@ async def upload_chat_file(
         
         ext = os.path.splitext(file.filename)[1].lower()
         if ext in ['.mp4', '.avi', '.mov', '.mkv', '.flv']:
-            # 🚀 核心优化：将 CPU 密集的视频分析放入线程池执行
-            # 这允许 FastAPI 继续处理其他请求，而不会被卡死
+            # 放入线程池执行，防止卡死
             report = await run_in_threadpool(video_svc.process_video, file_path)
             
             session_manager.update_session_context(session_id, report)
@@ -95,7 +116,6 @@ async def chat_endpoint(req: ChatRequest):
         rag = get_rag_service()
         full_answer = ""
         try:
-            # 🚀 传入 session_id，让 RAG 服务能读取历史记录
             async for chunk in rag.chat_stream(req.input, session_id, context=current_context):
                 full_answer += chunk
                 yield chunk
@@ -124,10 +144,9 @@ async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File
         
         if file_ext in ['.mp4', '.avi', '.mov', '.mkv', '.flv']:
             background_tasks.add_task(process_video_task, file_path, file.filename)
-            return {"message": "视频已上传，系统正在后台进行多模态分析（耗时较长，请稍候）...", "filename": file.filename}
+            return {"message": "视频已上传，系统正在后台进行多模态分析...", "filename": file.filename}
         else:
             vector_service = get_vector_service()
-            # 文档处理也建议放到 run_in_threadpool，虽然这里用 background_tasks 也可以
             background_tasks.add_task(vector_service.process_file, file_path)
             return {"message": "上传成功，后台处理中...", "filename": file.filename}
             
@@ -176,60 +195,47 @@ def delete_session_endpoint(session_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# 🚀【核心修复】多模态联合对话接口 (解决 422 报错)
 @app.post("/api/chat/multimodal")
 async def chat_multimodal_endpoint(
     file: UploadFile = File(...),
-    # 🔧 关键修改：将参数设为 Optional 并在 Form 中给默认值 None
     input: Optional[str] = Form(None),
     session_id: Optional[str] = Form(None)
 ):
-    # 1. 处理可能的空值输入
     user_input = input if input else "请分析这个视频"
     current_session_id = session_id
 
-    # 兼容前端可能传 "null" 字符串或空字符串的情况
     if not current_session_id or current_session_id == "null" or current_session_id == "":
         current_session_id = session_manager.create_session(title=user_input[:20])
     
-    # 2. 保存临时视频文件
     file_path = os.path.join(Config.FILES_DIR, f"temp_chat_{file.filename}")
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # 3. 定义流式生成器 (核心逻辑)
     async def response_generator():
         try:
-            # --- 阶段 A: 视频分析 ---
-            yield "⏳ 正在调用 32 核集群进行视频分析（请稍候）...\n"
+            yield "⏳ 正在调用多模态模型分析视频（预加载模型已就绪）...\n"
             
             video_svc = get_video_service()
-            # 在线程池中运行 CPU 密集的视频分析，不阻塞主线程
+            # 此时模型应该已经加载好了，直接跑
             report = await run_in_threadpool(video_svc.process_video, file_path)
             
-            # 将分析报告写入 Session 上下文
             session_manager.update_session_context(current_session_id, report)
             
-            # 清理临时文件
             if os.path.exists(file_path):
                 os.remove(file_path)
                 
-            yield "✅ 视频分析完成！正在根据画面内容生成回答...\n"
+            yield "✅ 视频分析完成！正在生成回答...\n"
             
-            # --- 阶段 B: RAG 对话生成 ---
-            # 记录用户消息
             session_manager.add_message(current_session_id, "user", user_input)
             
             rag = get_rag_service()
             current_context = session_manager.get_session_context(current_session_id)
             
             full_answer = ""
-            # 开始流式生成回答
             async for chunk in rag.chat_stream(user_input, current_session_id, context=current_context):
                 full_answer += chunk
                 yield chunk
                 
-            # 记录助手回答
             clean_answer = full_answer.split("__SOURCES__")[0]
             session_manager.add_message(current_session_id, "assistant", clean_answer)
             
