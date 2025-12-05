@@ -176,6 +176,74 @@ def delete_session_endpoint(session_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# 🚀【核心修复】多模态联合对话接口 (解决 422 报错)
+@app.post("/api/chat/multimodal")
+async def chat_multimodal_endpoint(
+    file: UploadFile = File(...),
+    # 🔧 关键修改：将参数设为 Optional 并在 Form 中给默认值 None
+    input: Optional[str] = Form(None),
+    session_id: Optional[str] = Form(None)
+):
+    # 1. 处理可能的空值输入
+    user_input = input if input else "请分析这个视频"
+    current_session_id = session_id
+
+    # 兼容前端可能传 "null" 字符串或空字符串的情况
+    if not current_session_id or current_session_id == "null" or current_session_id == "":
+        current_session_id = session_manager.create_session(title=user_input[:20])
+    
+    # 2. 保存临时视频文件
+    file_path = os.path.join(Config.FILES_DIR, f"temp_chat_{file.filename}")
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # 3. 定义流式生成器 (核心逻辑)
+    async def response_generator():
+        try:
+            # --- 阶段 A: 视频分析 ---
+            yield "⏳ 正在调用 32 核集群进行视频分析（请稍候）...\n"
+            
+            video_svc = get_video_service()
+            # 在线程池中运行 CPU 密集的视频分析，不阻塞主线程
+            report = await run_in_threadpool(video_svc.process_video, file_path)
+            
+            # 将分析报告写入 Session 上下文
+            session_manager.update_session_context(current_session_id, report)
+            
+            # 清理临时文件
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                
+            yield "✅ 视频分析完成！正在根据画面内容生成回答...\n"
+            
+            # --- 阶段 B: RAG 对话生成 ---
+            # 记录用户消息
+            session_manager.add_message(current_session_id, "user", user_input)
+            
+            rag = get_rag_service()
+            current_context = session_manager.get_session_context(current_session_id)
+            
+            full_answer = ""
+            # 开始流式生成回答
+            async for chunk in rag.chat_stream(user_input, current_session_id, context=current_context):
+                full_answer += chunk
+                yield chunk
+                
+            # 记录助手回答
+            clean_answer = full_answer.split("__SOURCES__")[0]
+            session_manager.add_message(current_session_id, "assistant", clean_answer)
+            
+        except Exception as e:
+            err_msg = f"\n❌ 处理出错: {str(e)}"
+            yield err_msg
+            session_manager.add_message(current_session_id, "assistant", err_msg)
+
+    return StreamingResponse(
+        response_generator(), 
+        media_type="text/plain",
+        headers={"X-Session-Id": current_session_id}
+    )
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=Config.API_PORT)

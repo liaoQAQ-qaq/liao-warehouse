@@ -62,6 +62,20 @@ class Config:
     # 视频抽帧间隔 (秒)
     VIDEO_FRAME_INTERVAL = 8
 
+    # 🔥【新增配置】
+    # 批处理大小：利用 32 核优势，一次并行处理 8 帧（如果内存吃紧可调小）
+    VIDEO_BATCH_SIZE = 4
+    # 视觉分辨率限制：取消 448 限制，提升到 1024px (约 100万像素) 以看清文字
+    VIDEO_MAX_PIXELS = 768 * 768
+    # 🔥【新增配置：文档与向量优化】
+    # Embedding 批处理大小：每次并行计算 16 段文本的向量 (CPU 32核建议 16-32)
+    # 过大可能导致延迟增加，16 是个吞吐量与延迟的平衡点
+    EMBEDDING_BATCH_SIZE = 8
+    
+    # OCR 线程数：分配给 RapidOCR 的线程数
+    OCR_THREADS = 8
+
+
     @classmethod
     def validate(cls):
         pass

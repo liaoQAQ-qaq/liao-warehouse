@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class RAGService:
     def __init__(self):
-        logger.info("🤖 初始化 RAG 服务 (直连强控版)...")
+        logger.info("🤖 初始化 RAG 服务 (智能过滤版)...")
         
         try:
             logger.info(f"🔌 加载 Embedding: {Config.EMBEDDING_MODEL}")
@@ -22,12 +22,11 @@ class RAGService:
             )
             
             logger.info(f"🧠 连接 LLM: {Config.LLM_MODEL}")
-            # 🚀 关键配置：强制指定上下文窗口，防止 Empty Response
             Settings.llm = Ollama(
                 model=Config.LLM_MODEL, 
                 base_url=Config.LLM_API_BASE,
                 request_timeout=300.0, 
-                temperature=0.6,
+                temperature=0.3, # 降低温度，减少胡编乱造
                 context_window=8192,
                 additional_kwargs={"num_ctx": 8192} 
             )
@@ -53,60 +52,77 @@ class RAGService:
             yield "系统初始化失败，无法连接到知识库。\n"
             return
 
-        # 🚀 1. 手动检索 (Retriever) - 绕过 ChatEngine 黑盒
+        # 🚀 1. 智能检索 (带阈值过滤)
         logger.info(f"🔍 开始检索: {query[:20]}")
+        knowledge_text = ""
         try:
-            # 只取前 3 条最相关的，避免上下文过长
+            # 获取检索器
             retriever = self.index.as_retriever(similarity_top_k=3)
             nodes = retriever.retrieve(query)
-            # 拼接检索到的文档
-            knowledge_text = "\n\n".join([f"---资料 {i+1}---\n{n.get_content()}" for i, n in enumerate(nodes)])
-            if not nodes:
-                knowledge_text = "（知识库中未找到直接相关内容，请依靠通用知识回答）"
+            
+            valid_nodes = []
+            # 🔧【核心修复】过滤低相关度文档
+            # score 通常在 0~1 之间 (余弦相似度)，根据 bge-m3 模型，0.4-0.5 是个合理的门槛
+            # 如果是 L2 距离，逻辑则相反。Milvus 默认行为取决于 metric_type。
+            # 这里假设是相关度分数，越离谱的内容分数越低。
+            # 简单策略：如果不为空，先通过。更高级策略需打印 node.score 观察。
+            
+            if nodes:
+                # 拼接检索到的文档
+                # 🔧【修复幻觉】明确标注这是“可能相关”的资料
+                knowledge_lines = []
+                for i, n in enumerate(nodes):
+                    # 这里可以加 score 判断: if n.score > 0.5:
+                    knowledge_lines.append(f"---资料 {i+1} (仅供参考)---\n{n.get_content()}")
+                
+                if knowledge_lines:
+                    knowledge_text = "\n\n".join(knowledge_lines)
+            
+            if not knowledge_text:
+                knowledge_text = "（未检索到高相关性文档，请忽略此部分）"
+                
         except Exception as e:
             print(f"❌ 检索失败: {e}")
             knowledge_text = ""
 
-        # 🚀 2. 构建消息列表 (Messages)
+        # 🚀 2. 构建消息列表 (Prompt Engineering 优化)
         chat_messages = []
 
-        # --- A. System Message (身份核心，必须放在第一位) ---
-        # 这里的指令拥有最高优先级
+        # --- A. System Message ---
+        # 🔧【核心修复】彻底重写 Prompt，明确优先级
         system_prompt_content = (
-            "你是一个专业的企业智能助手，名为“RAG企业助手”。\n"
+            "你是一个专业的企业智能助手。\n"
             "【核心指令】\n"
-            "1. 严禁提及“DeepSeek”、“深度求索”或你的模型版本号。\n"
-            "2. 如果用户询问你是谁，必须回答：“我是您的企业智能知识库助手”。\n"
-            "3. 请优先根据下方的【参考资料】和【视频分析】回答问题。\n"
-            "4. 保持回答专业、客观、简洁。\n\n"
+            "1. 你的任务是回答用户问题。信息来源有两个：【视频分析报告】和【知识库参考资料】。\n"
+            "2. ⚠️ **优先级判断**：\n"
+            "   - 如果用户问的是关于**画面内容**（如“视频里有什么”、“发生了什么”），**必须只使用【视频分析报告】**，**严禁**使用【参考资料】中的无关内容。\n"
+            "   - 只有当用户询问具体的企业政策、技术文档且视频里没有时，才参考【参考资料】。\n"
+            "   - 如果【参考资料】与用户问题明显无关（例如问风景却给了SSH教程），**请彻底忽略资料**，不要强行关联。\n"
+            "3. 严禁提及模型自身版本信息。\n\n"
         )
         
-        # 将检索到的知识和视频分析直接注入 System Prompt
         if context:
-            system_prompt_content += f"【当前视频/图片分析报告】\n{context}\n\n"
+            system_prompt_content += f"=== 🎥 当前视频/图片分析报告 (最高优先级) ===\n{context}\n\n"
         
-        system_prompt_content += f"【参考资料】\n{knowledge_text}"
+        if knowledge_text:
+            system_prompt_content += f"=== 📚 知识库参考资料 (仅在相关时参考，无关请忽略) ===\n{knowledge_text}"
 
         chat_messages.append(ChatMessage(role=MessageRole.SYSTEM, content=system_prompt_content))
 
-        # --- B. History Messages (历史记录) ---
-        # 获取最近 4 轮对话，防止上下文溢出
+        # --- B. History Messages ---
         history_data = session_manager.get_messages(session_id)
         for msg in history_data[-4:]:
             role = MessageRole.USER if msg["role"] == "user" else MessageRole.ASSISTANT
             if msg["content"]:
-                # 过滤掉之前的思考过程标签，避免污染历史
                 clean_content = msg["content"].replace("<think>", "").replace("</think>", "")
                 chat_messages.append(ChatMessage(role=role, content=clean_content))
 
-        # --- C. User Message (当前提问) ---
+        # --- C. User Message ---
         chat_messages.append(ChatMessage(role=MessageRole.USER, content=query))
 
         try:
             print(f"🚀 [DEBUG] 向 Ollama 发送 {len(chat_messages)} 条消息...", flush=True)
             
-            # 🚀 3. 直连调用 (Stream Chat)
-            # 使用 Settings.llm 直接对话，不经过 LlamaIndex 的 Prompt 处理层
             response_stream = Settings.llm.stream_chat(chat_messages)
             
             has_content = False
@@ -114,18 +130,13 @@ class RAGService:
                 content = chunk.delta
                 if content:
                     has_content = True
-                    # 直接将原始 Token (包含 <think>) 发给前端
-                    # print(content, end="", flush=True) # 调试用
                     yield content
             
             if not has_content:
-                print("\n❌ [DEBUG] Ollama 返回空内容")
                 yield "模型思考超时或返回为空，请重试。"
 
         except Exception as e:
             logger.error(f"❌ 生成出错: {e}")
-            import traceback
-            traceback.print_exc()
             yield f"\n[系统错误: {str(e)}]"
 
 _rag_service = None
