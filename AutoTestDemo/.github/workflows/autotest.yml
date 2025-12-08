@@ -11,6 +11,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    
+    # 【核心大招】全局指定工作目录
+    # 这句话的意思是：下面所有 run 命令，默认都在 AutoTestDemo 目录下运行！
+    # 这样你就再也不用担心找不到 requirements.txt 了
+    defaults:
+      run:
+        working-directory: ./AutoTestDemo
 
     steps:
     - name: 拉取代码
@@ -24,8 +31,7 @@ jobs:
     - name: 安装依赖
       run: |
         python -m pip install --upgrade pip
-        # 【修复点 1】进入子目录去安装依赖
-        cd AutoTestDemo
+        # 不需要写 cd 了，因为上面已经配置了 defaults
         pip install -r requirements.txt
         pip install pytest-html
 
@@ -41,8 +47,7 @@ jobs:
 
     - name: 运行测试
       run: |
-        # 【修复点 2】进入子目录去运行测试
-        cd AutoTestDemo
+        # 不需要写 cd 了
         pytest --html=report.html --capture=tee-sys
 
     - name: 上传结果
@@ -50,8 +55,8 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: test-results
+        # 注意：这里的 path 依然要写完整路径，因为 upload 插件不受 defaults 影响
         path: |
-          # 【修复点 3】上传路径也要加上子目录前缀
           AutoTestDemo/report.html
           AutoTestDemo/videos/
           AutoTestDemo/trace.zip
