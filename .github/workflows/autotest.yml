@@ -44,7 +44,7 @@ jobs:
 
     - name: 运行测试
       run: |
-        pytest -4 auto --html=report.html --capture=tee-sys
+        pytest -n 4 auto --html=report.html --capture=tee-sys
 
     - name: 上传结果
       if: always()
