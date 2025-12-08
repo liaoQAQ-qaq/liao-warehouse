@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, FileText, Trash2, CheckCircle, AlertCircle, HardDrive, File as FileIcon, Video } from 'lucide-react';
+import { Upload, FileText, Trash2, CheckCircle, AlertCircle, HardDrive, File as FileIcon, Video, Cpu } from 'lucide-react';
 
 export default function UploadManager() {
   const [fileList, setFileList] = useState([]);
@@ -41,15 +41,15 @@ export default function UploadManager() {
     xhr.onload = () => {
       if (xhr.status === 200) {
         const response = JSON.parse(xhr.responseText);
-        // 🚀 针对视频上传显示特殊提示
+        // 🚀 提示文案更新：体现高性能特性
         const msg = file.type.startsWith('video/') 
-            ? '视频上传成功，后台正在进行多模态分析（耗时较长）...' 
-            : '上传成功，后台正在索引...';
+            ? '✅ 视频上传成功！系统正在调用 32 核高性能集群进行并行分析，请稍候...' 
+            : '✅ 文档上传成功！正在进行并行向量化索引...';
             
         setStatus({ type: 'success', msg: msg });
         loadFiles();
       } else {
-        setStatus({ type: 'error', msg: '上传失败' });
+        setStatus({ type: 'error', msg: '❌ 上传失败，请检查文件大小或网络。' });
       }
       setUploading(false);
     };
@@ -95,10 +95,9 @@ export default function UploadManager() {
               <Upload size={32} className="text-indigo-600" />
             </div>
             <h3 style={{ fontWeight: '600', fontSize: '18px', marginBottom: '8px' }}>上传文件</h3>
-            {/* 🚀 更新支持格式提示 */}
             <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '24px' }}>
               支持 PDF, DOCX, TXT <br/>
-              <span style={{color: '#6366f1', fontWeight: 'bold'}}>及 MP4, AVI 视频 (自动分析)</span>
+              <span style={{color: '#6366f1', fontWeight: 'bold'}}>及 MP4, AVI (单文件最大 1GB)</span>
             </p>
             
             <label style={{
@@ -108,8 +107,7 @@ export default function UploadManager() {
               borderRadius: '12px', fontWeight: '600', cursor: uploading ? 'not-allowed' : 'pointer',
               transition: 'all 0.2s'
             }}>
-              {uploading ? '上传中...' : '选择文件'}
-              {/* 🚀 增加 accept 属性 */}
+              {uploading ? '高速传输中...' : '选择文件'}
               <input type="file" onChange={handleUpload} disabled={uploading} style={{ display: 'none' }} accept=".pdf,.docx,.doc,.txt,.md,.jpg,.png,.mp4,.avi,.mov,.mkv" />
             </label>
 
@@ -126,8 +124,9 @@ export default function UploadManager() {
               <motion.div 
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                style={{ marginTop: '16px', fontSize: '14px', color: status.type === 'success' ? '#16a34a' : '#ef4444', fontWeight: '500' }}
+                style={{ marginTop: '16px', fontSize: '14px', color: status.type === 'success' ? '#16a34a' : '#ef4444', fontWeight: '500', display:'flex', alignItems:'center', justifyContent:'center', gap: 6 }}
               >
+                {status.type === 'success' && <Cpu size={16} />}
                 {status.msg}
               </motion.div>
             )}
@@ -142,9 +141,12 @@ export default function UploadManager() {
               display: 'flex', flexDirection: 'column', justifyContent: 'center'
             }}
           >
-            <h3 style={{ opacity: 0.8, fontSize: '16px', fontWeight: '500' }}>当前存储状态</h3>
+            <h3 style={{ opacity: 0.8, fontSize: '16px', fontWeight: '500' }}>高性能存储池</h3>
             <div style={{ fontSize: '48px', fontWeight: '800', margin: '16px 0' }}>{fileList.length} <span style={{ fontSize: '20px', fontWeight: '500', opacity: 0.8 }}>个文件</span></div>
-            <p style={{ opacity: 0.7, fontSize: '14px' }}>视频文件将自动提取语音与画面信息。</p>
+            <p style={{ opacity: 0.7, fontSize: '14px', display:'flex', alignItems:'center', gap:6 }}>
+              <Cpu size={16} /> 
+              已启用 32 核并行加速处理
+            </p>
           </motion.div>
         </div>
 
@@ -171,7 +173,6 @@ export default function UploadManager() {
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                     <div style={{ width: '40px', height: '40px', background: '#f1f5f9', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isVideo(file.name) ? '#8b5cf6' : '#64748b' }}>
-                      {/* 🚀 动态图标 */}
                       {isVideo(file.name) ? <Video size={20} /> : <FileIcon size={20} />}
                     </div>
                     <div>

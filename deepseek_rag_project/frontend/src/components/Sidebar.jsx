@@ -15,7 +15,6 @@ export default function Sidebar({ activeTab, setActiveTab, sessions, currentSess
         display: 'flex',
         flexDirection: 'column',
         padding: '20px',
-        // paddingBottom: '0', // 移除底部的 padding，交给内部容器控制
         boxShadow: '4px 0 24px rgba(0,0,0,0.02)',
         position: 'relative',
         zIndex: 10
@@ -60,7 +59,7 @@ export default function Sidebar({ activeTab, setActiveTab, sessions, currentSess
           boxShadow: '0 4px 12px rgba(99, 102, 241, 0.25)',
           marginBottom: '32px',
           transition: 'all 0.2s',
-          flexShrink: 0 // 防止被压缩
+          flexShrink: 0
         }}
       >
         <Plus size={18} strokeWidth={3} /> 
@@ -106,7 +105,7 @@ export default function Sidebar({ activeTab, setActiveTab, sessions, currentSess
         })}
       </div>
 
-      {/* 4. 历史记录 (修复截断问题) */}
+      {/* 4. 历史记录 */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
         <div style={{ 
           display: 'flex', alignItems: 'center', gap: '6px', 
@@ -126,57 +125,64 @@ export default function Sidebar({ activeTab, setActiveTab, sessions, currentSess
             display: 'flex', 
             flexDirection: 'column', 
             gap: '4px',
-            // 🚀【核心修复】增加底部内边距，让最后一个元素能完整显示出来
             paddingBottom: '20px' 
           }}
         >
           <AnimatePresence>
-            {sessions.map((session, i) => (
-              <motion.div
-                key={session.id}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.03 }}
-                onClick={() => onSessionSelect(session.id)}
-                className="group"
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: '10px',
-                  cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  fontSize: '13px',
-                  color: currentSessionId === session.id ? '#1e293b' : '#64748b',
-                  background: currentSessionId === session.id ? 'white' : 'transparent',
-                  boxShadow: currentSessionId === session.id ? '0 2px 8px rgba(0,0,0,0.04)' : 'none',
-                  border: currentSessionId === session.id ? '1px solid rgba(0,0,0,0.02)' : '1px solid transparent',
-                  transition: 'all 0.2s',
-                  flexShrink: 0 // 防止 flex 挤压列表项
-                }}
-              >
-                <span style={{ 
-                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1,
-                  fontWeight: currentSessionId === session.id ? '500' : '400'
-                }}>
-                  {session.title || '无标题会话'}
-                </span>
-                
-                {/* 删除按钮 */}
-                <motion.button
-                  whileHover={{ scale: 1.1, color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)' }}
-                  onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
+            {sessions && sessions.length > 0 ? (
+              sessions.map((session, i) => (
+                <motion.div
+                  key={session.id}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.03 }}
+                  onClick={() => onSessionSelect(session.id)}
+                  className="group"
                   style={{
-                    border: 'none', background: 'transparent', cursor: 'pointer',
-                    padding: '4px', borderRadius: '6px',
-                    color: '#cbd5e1',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    opacity: currentSessionId === session.id ? 1 : 0
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    fontSize: '13px',
+                    color: currentSessionId === session.id ? '#1e293b' : '#64748b',
+                    background: currentSessionId === session.id ? 'white' : 'transparent',
+                    boxShadow: currentSessionId === session.id ? '0 2px 8px rgba(0,0,0,0.04)' : 'none',
+                    border: currentSessionId === session.id ? '1px solid rgba(0,0,0,0.02)' : '1px solid transparent',
+                    transition: 'all 0.2s',
+                    flexShrink: 0
                   }}
-                  className="delete-btn-hover"
                 >
-                  <Trash2 size={14} />
-                </motion.button>
-              </motion.div>
-            ))}
+                  <span style={{ 
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1,
+                    fontWeight: currentSessionId === session.id ? '500' : '400'
+                  }}>
+                    {session.title || '无标题会话'}
+                  </span>
+                  
+                  {/* 🚀 修复点：将 'transparent' 改为具体的透明红色 */}
+                  <motion.button
+                    whileHover={{ scale: 1.1, color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)' }}
+                    onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
+                    style={{
+                      border: 'none', 
+                      background: 'rgba(239, 68, 68, 0)', // 修复：使用明确的透明色
+                      cursor: 'pointer',
+                      padding: '4px', borderRadius: '6px',
+                      color: '#cbd5e1',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      opacity: currentSessionId === session.id ? 1 : 0
+                    }}
+                    className="delete-btn-hover"
+                  >
+                    <Trash2 size={14} />
+                  </motion.button>
+                </motion.div>
+              ))
+            ) : (
+               <div style={{ padding: '20px', textAlign: 'center', color: '#cbd5e1', fontSize: '12px' }}>
+                 暂无历史记录
+               </div>
+            )}
           </AnimatePresence>
         </div>
       </div>

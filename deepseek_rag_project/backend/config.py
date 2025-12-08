@@ -66,7 +66,7 @@ class Config:
     CHUNK_OVERLAP = 50
 
     # --- 多模态 ---
-    VISION_MODEL_ID ="/home/liaozhenhao/liao-warehouse/deepseek_rag_project/model_cache/models--Qwen--Qwen2-VL-7B-Instruct"
+    VISION_MODEL_ID ="/home/liaozhenhao/liao-warehouse/models/Qwen2.5-VL-7B-Instruct"
     AUDIO_MODEL_SIZE = "large-v3"  
     VIDEO_FRAME_INTERVAL = 2
     VIDEO_BATCH_SIZE = 4

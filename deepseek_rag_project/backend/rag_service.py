@@ -74,8 +74,7 @@ class RAGService:
             logger.info(f"🔍 开始检索知识库: {query[:20]}")
             try:
                 # 🚀【优化】只取 Top 2
-                # 7B 模型阅读速度快，Top 2 (约 700 tokens) 可以在 1-2秒内读完。
-                # 既保证了有足够的资料，又不会让预处理时间太长。
+
                 retriever = self.index.as_retriever(similarity_top_k=2)
                 nodes = retriever.retrieve(query)
                 

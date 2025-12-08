@@ -1,6 +1,7 @@
 import React, { useState, useRef, useLayoutEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Send, Sparkles, Bot, User, BookOpen, ChevronDown, ChevronUp, FileText, ArrowDown, Square } from 'lucide-react'; // 🚀 引入 Square 图标
+// 🚀 引入 Paperclip 和 X (关闭) 图标
+import { Send, Sparkles, Bot, User, BookOpen, ChevronDown, ChevronUp, FileText, ArrowDown, Square, Paperclip, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // 来源卡片组件 (保持不变)
@@ -66,12 +67,13 @@ export default function ChatArea({ messages, setMessages, sessionId, onSendMessa
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  // 🚀 新增：选中文件状态
+  const [selectedFile, setSelectedFile] = useState(null);
+  const fileInputRef = useRef(null);
   
   const scrollContainerRef = useRef(null);
   const bottomRef = useRef(null);
   const shouldAutoScroll = useRef(true);
-  
-  // 🚀 新增：用于存储当前的 AbortController
   const abortControllerRef = useRef(null);
 
   const scrollToBottom = (behavior = 'auto') => {
@@ -97,35 +99,56 @@ export default function ChatArea({ messages, setMessages, sessionId, onSendMessa
     setShowScrollButton(distanceToBottom > 200);
   };
 
-  // 🚀 发送逻辑
+  // 🚀 处理文件选择
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      // 简单校验一下是不是视频
+      if (!file.type.startsWith('video/')) {
+        alert("目前仅支持视频文件的联合分析");
+        return;
+      }
+      setSelectedFile(file);
+    }
+  };
+
+  // 🚀 发送逻辑 (升级版)
   const handleSend = async () => {
-    if (!input.trim() || loading) return;
+    if ((!input.trim() && !selectedFile) || loading) return;
     
     const text = input;
+    const fileToSend = selectedFile;
+    
+    // 清空状态
     setInput('');
+    setSelectedFile(null);
     setLoading(true);
     shouldAutoScroll.current = true;
     
-    // 1. 创建新的控制器
     const controller = new AbortController();
     abortControllerRef.current = controller;
     
-    const newMessages = [...messages, { role: 'user', content: text }];
+    // 乐观更新 UI
+    const displayContent = fileToSend 
+        ? `[上传视频] ${fileToSend.name}\n${text}` 
+        : text;
+        
+    const newMessages = [...messages, { role: 'user', content: displayContent }];
     setMessages(newMessages);
     setTimeout(() => scrollToBottom('smooth'), 0);
 
-    // 2. 将控制器传给父组件
-    await onSendMessage(text, newMessages, controller);
+    // 🚀 将文件传给父组件处理
+    await onSendMessage(text, newMessages, controller, fileToSend);
     
-    // 3. 结束 loading
     setLoading(false);
     abortControllerRef.current = null;
+    // 重置文件输入框，允许重复选择同一文件
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // 🚀 停止逻辑
   const handleStop = () => {
     if (abortControllerRef.current) {
-      abortControllerRef.current.abort(); // 切断连接
+      abortControllerRef.current.abort();
       abortControllerRef.current = null;
       setLoading(false);
     }
@@ -145,13 +168,8 @@ export default function ChatArea({ messages, setMessages, sessionId, onSendMessa
             <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center shadow-lg mb-5">
               <Sparkles size={28} className="text-indigo-500" style={{color: '#6366f1'}} />
             </div>
-            <h2 className="text-lg font-bold text-slate-800 mb-2">欢迎使用企业知识库</h2>
-            <p className="text-slate-500 max-w-md mb-6 text-xs">我可以帮您分析文档、回答技术问题或查询公司政策。</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', maxWidth: '550px', width: '100%' }}>
-              {['Docker CP 命令怎么用？', '查询我的简历信息', '公司的考勤制度是？', '如何部署 Python 应用？'].map((q, i) => (
-                <motion.button key={i} whileHover={{ scale: 1.02, backgroundColor: '#fff' }} whileTap={{ scale: 0.98 }} onClick={() => { setInput(q); shouldAutoScroll.current = true; }} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.5)', borderRadius: '10px', textAlign: 'left', color: '#475569', cursor: 'pointer', fontSize: '12px', boxShadow: '0 2px 4px -1px rgba(0, 0, 0, 0.01)' }}>{q}</motion.button>
-              ))}
-            </div>
+            <h2 className="text-lg font-bold text-slate-800 mb-2">DeepSeek RAG Enterprise</h2>
+            <p className="text-slate-500 max-w-md mb-6 text-xs">上传视频并提问，我会同时看视频并回答您的问题。</p>
           </motion.div>
         ) : (
           <div style={{ maxWidth: '800px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -171,7 +189,7 @@ export default function ChatArea({ messages, setMessages, sessionId, onSendMessa
                 </div>
               </motion.div>
             ))}
-            {loading && <div style={{marginLeft:40, fontSize:12, color:'#94a3b8'}}>DeepSeek 正在思考...</div>}
+            {loading && <div style={{marginLeft:40, fontSize:12, color:'#94a3b8'}}>Qwen 正在思考...</div>}
             <div ref={bottomRef} />
           </div>
         )}
@@ -185,21 +203,66 @@ export default function ChatArea({ messages, setMessages, sessionId, onSendMessa
         )}
       </AnimatePresence>
 
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '10px 30px 16px 30px', background: 'linear-gradient(to top, #f8fafc 30%, rgba(248,250,252,0) 100%)', display: 'flex', justifyContent: 'center', zIndex: 20 }}>
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '10px 30px 16px 30px', background: 'linear-gradient(to top, #f8fafc 30%, rgba(248,250,252,0) 100%)', display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 20 }}>
+        
+        {/* 🚀 文件预览卡片 (ChatGPT 风格) */}
+        <AnimatePresence>
+            {selectedFile && (
+                <motion.div 
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    style={{ width: '100%', maxWidth: '800px', marginBottom: '8px', display:'flex', justifyContent:'flex-start' }}
+                >
+                    <div style={{ background: 'white', padding: '8px 12px', borderRadius: '10px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ width: 32, height: 32, background: '#f1f5f9', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1' }}>
+                            <FileText size={16} />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: '13px', fontWeight: '500', color: '#334155', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedFile.name}</span>
+                            <span style={{ fontSize: '11px', color: '#94a3b8' }}>{(selectedFile.size / 1024 / 1024).toFixed(1)} MB</span>
+                        </div>
+                        <button onClick={() => setSelectedFile(null)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 4, color: '#94a3b8' }}>
+                            <X size={14} />
+                        </button>
+                    </div>
+                </motion.div>
+            )}
+        </AnimatePresence>
+
         <motion.div initial={{ y: 10, opacity: 0 }} animate={{ y: 0, opacity: 1 }} style={{ width: '100%', maxWidth: '800px', position: 'relative', background: 'rgba(255, 255, 255, 0.95)', backdropFilter: 'blur(12px)', borderRadius: '16px', padding: '4px', boxShadow: '0 4px 20px -4px rgba(0,0,0,0.06)', border: '1px solid rgba(255,255,255,0.9)', display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
-          <textarea rows={1} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())} placeholder="✨ 输入问题..." disabled={loading} style={{ flex: 1, background: 'transparent', border: 'none', padding: '10px 14px', fontSize: '14px', outline: 'none', resize: 'none', maxHeight: '100px', minHeight: '24px', color: '#334155', lineHeight: '1.4' }} />
           
-          {/* 🚀 按钮逻辑：loading 时显示停止，否则显示发送 */}
+          {/* 🚀 隐藏的文件输入框 */}
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleFileSelect} 
+            accept="video/*" 
+            style={{ display: 'none' }} 
+          />
+          
+          {/* 🚀 回形针按钮 */}
+          <motion.button
+            whileHover={{ scale: 1.1, backgroundColor: '#f1f5f9' }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => fileInputRef.current.click()}
+            style={{ 
+                padding: '10px', borderRadius: '12px', border: 'none', background: 'transparent', 
+                color: '#64748b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' 
+            }}
+            title="上传视频进行联合分析"
+          >
+            <Paperclip size={20} />
+          </motion.button>
+
+          <textarea rows={1} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())} placeholder="✨ 输入问题（可配合上传视频）..." disabled={loading} style={{ flex: 1, background: 'transparent', border: 'none', padding: '10px 4px', fontSize: '14px', outline: 'none', resize: 'none', maxHeight: '100px', minHeight: '24px', color: '#334155', lineHeight: '1.4' }} />
+          
           {loading ? (
             <motion.button 
                 key="stop"
                 whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} 
                 onClick={handleStop}
-                style={{
-                  background: '#ef4444', // 红色停止按钮
-                  color: 'white', border: 'none', width: '34px', height: '34px', borderRadius: '12px',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', marginBottom: '3px'
-                }}
+                style={{ background: '#ef4444', color: 'white', border: 'none', width: '34px', height: '34px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', marginBottom: '3px' }}
             >
                 <Square size={14} fill="white" />
             </motion.button>
@@ -208,11 +271,11 @@ export default function ChatArea({ messages, setMessages, sessionId, onSendMessa
                 key="send"
                 whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} 
                 onClick={handleSend} 
-                disabled={!input.trim()}
+                disabled={!input.trim() && !selectedFile}
                 style={{
-                  background: input.trim() ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)' : '#f1f5f9',
-                  color: input.trim() ? 'white' : '#cbd5e1', border: 'none', width: '34px', height: '34px', borderRadius: '12px',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: input.trim() ? 'pointer' : 'not-allowed', marginBottom: '3px', transition: 'all 0.2s'
+                  background: (input.trim() || selectedFile) ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)' : '#f1f5f9',
+                  color: (input.trim() || selectedFile) ? 'white' : '#cbd5e1', border: 'none', width: '34px', height: '34px', borderRadius: '12px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: (input.trim() || selectedFile) ? 'pointer' : 'not-allowed', marginBottom: '3px', transition: 'all 0.2s'
                 }}
             >
                 <Send size={16} strokeWidth={2.5} />

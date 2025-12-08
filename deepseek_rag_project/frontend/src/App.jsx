@@ -6,8 +6,10 @@ import UploadManager from './components/UploadManager';
 export default function App() {
   const [activeTab, setActiveTab] = useState('chat');
   const [sessions, setSessions] = useState([]);
-  const [currentSessionId, setCurrentSessionId] = useState(null);
+  // ✅ 定义的是 currentSessionId
+  const [currentSessionId, setCurrentSessionId] = useState(null); 
   const [messages, setMessages] = useState([]);
+  const [isChatUploading, setIsChatUploading] = useState(false);
 
   // 加载会话列表
   const loadSessions = () => {
@@ -24,6 +26,7 @@ export default function App() {
   const switchSession = async (id) => {
     setCurrentSessionId(id);
     setActiveTab('chat');
+    setIsChatUploading(false);
     if (!id) {
         setMessages([]);
         return;
@@ -31,7 +34,14 @@ export default function App() {
     try {
         const res = await fetch(`/api/sessions/${id}/messages`);
         const msgs = await res.json();
-        setMessages(msgs);
+        // 切换历史记录时，也需要处理一下 <think> 标签，防止历史记录显示空白
+        const processedMsgs = msgs.map(msg => ({
+            ...msg,
+            content: msg.content
+                .replace(/<think>/g, '> **🧠 深度思考中...**\n> ')
+                .replace(/<\/think>/g, '\n\n')
+        }));
+        setMessages(processedMsgs);
     } catch (e) {
         console.error(e);
     }
@@ -54,65 +64,120 @@ export default function App() {
     }
   };
 
-  // 🚀【核心修改】处理发送消息 + 支持打断 + 自动捕获SessionID
-  const handleSendMessage = async (text, currentMsgs, controller) => {
-    setMessages([...currentMsgs, { role: 'assistant', content: '', sources: null }]);
+  // 聊天框上传
+  const handleChatUpload = async (file) => {
+    if (!currentSessionId) {
+        alert("请先发送一条消息开启会话，然后再上传视频进行分析。");
+        return;
+    }
+
+    setIsChatUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('session_id', currentSessionId);
+
+    try {
+        const res = await fetch('/api/chat/upload', {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (res.ok) {
+            const data = await res.json();
+            const reportMsg = {
+                role: 'assistant',
+                content: `🎥 **${data.message}**\n\n> ${data.report_preview || "分析报告已生成，请直接提问。"}`,
+                sources: null
+            };
+            setMessages(prev => [...prev, reportMsg]);
+        } else {
+            const err = await res.json();
+            alert(`上传失败: ${err.detail || '未知错误'}`);
+        }
+    } catch (e) {
+        console.error(e);
+        alert("网络请求失败");
+    } finally {
+        setIsChatUploading(false);
+    }
+  };
+
+  // 🚀 核心修复：发送消息与流式处理 + 思考标签解析
+  // 🚀 核心升级：支持多模态文件上传
+  const handleSendMessage = async (text, history, controller, file = null) => {
+    // 乐观更新：先在界面上显示用户消息 (ChatArea 已经做了，这里只需要处理请求)
+    // 注意：history 已经是更新后的了
     
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: text, session_id: currentSessionId }),
-        signal: controller.signal
-      });
+      let response;
+      
+      if (file) {
+        // --- 🅰️ 多模态联合模式 (视频 + 文字) ---
+        console.log("🚀 启动多模态联合分析...");
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('input', text || "请分析这个视频"); 
+        // ❌ 修复点1：原代码是 sessionId，改为 currentSessionId
+        formData.append('session_id', currentSessionId || "");
 
-      // 🚀 关键修复：从响应头中获取 Session ID 并锁定状态
-      // 防止连续对话产生碎片
-      const newSessionId = res.headers.get('X-Session-Id');
-      if (newSessionId && newSessionId !== currentSessionId) {
-          setCurrentSessionId(newSessionId);
-          loadSessions(); // 刷新侧边栏
+        response = await fetch('/api/chat/multimodal', {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal
+        });
+      } else {
+        // --- 🅱️ 普通对话模式 (仅文字) ---
+        response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          // ❌ 修复点2：原代码是 sessionId，改为 currentSessionId
+          body: JSON.stringify({ input: text, session_id: currentSessionId }),
+          signal: controller.signal
+        });
       }
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let fullBuffer = ''; 
+      // --- 下面是通用的流式读取逻辑 ---
+      if (!response.ok) throw new Error("网络请求失败");
       
+      // 更新 Session ID (如果是新会话)
+      const newSessionId = response.headers.get("X-Session-Id");
+      
+      // ❌ 修复点3：变量名 sessionId 改为 currentSessionId
+      if (newSessionId && newSessionId !== currentSessionId) {
+        // ❌ 修复点4：函数名 setSessionId 改为 setCurrentSessionId
+        setCurrentSessionId(newSessionId);
+        // 刷新侧边栏会话列表（建议取消注释，这样左侧列表会自动更新）
+        loadSessions(); 
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let assistantMsg = { role: 'assistant', content: '' };
+      
+      // 先添加一个空的 assistant 消息占位
+      setMessages(prev => [...prev, assistantMsg]);
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         
         const chunk = decoder.decode(value, { stream: true });
-        fullBuffer += chunk;
+        assistantMsg.content += chunk;
         
-        let displayContent = fullBuffer;
-        let parsedSources = null;
-
-        if (fullBuffer.includes('__SOURCES__')) {
-            const parts = fullBuffer.split('__SOURCES__');
-            displayContent = parts[0];
-            try {
-                parsedSources = JSON.parse(parts[1]);
-            } catch (e) {
-                // JSON 传输中
-            }
-        }
-
+        // 实时更新最后一条消息
         setMessages(prev => {
-          const newArr = [...prev];
-          newArr[newArr.length - 1] = { 
-              role: 'assistant', 
-              content: displayContent,
-              sources: parsedSources
-          };
-          return newArr;
+          const newMsgs = [...prev];
+          newMsgs[newMsgs.length - 1] = { ...assistantMsg };
+          return newMsgs;
         });
       }
+
     } catch (e) {
       if (e.name === 'AbortError') {
-        console.log('生成已手动停止');
+        console.log("请求已中断");
       } else {
-        console.error("Chat error:", e);
+        console.error(e);
+        setMessages(prev => [...prev, { role: 'assistant', content: `⚠️ 出错: ${e.message}` }]);
       }
     }
   };
@@ -135,6 +200,8 @@ export default function App() {
           setMessages={setMessages}
           sessionId={currentSessionId}
           onSendMessage={handleSendMessage}
+          onUploadFile={handleChatUpload}
+          isUploading={isChatUploading}
         />
       ) : (
         <UploadManager />

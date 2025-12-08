@@ -25,4 +25,5 @@ Thumbs.db
 *.log
 EOF
 
-weather_assistant/
+weather_assistant/models/
+models/
