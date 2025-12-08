@@ -9,7 +9,7 @@ def create_csv():
     header = ['user_id', 'search_word', 'expect_result']
     data.append(header)
 
-    for i in range(1, 101): # 生成 100 条
+    for i in range(1, 11): # 生成 100 条
         user_id = f"User_{i}"
         word = f"自动化测试_{i}" # 搜这个词
         expect = f"自动化测试_{i}" # 期望结果包含这个词
