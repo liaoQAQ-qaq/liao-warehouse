@@ -1,23 +1,19 @@
-name: CI/CD with Manual Approval
+name: Auto Test & Deploy (Solo Mode)
 
 on:
   push:
-    branches: [ main ]      # 合并到 main 时触发
-  pull_request:
-    branches: [ main ]      # 提交 PR 时触发
-
-permissions:
-  contents: write
-  pages: write
-  id-token: write
+    branches: [ main ]        # 只要你 push 到 main，就自动跑
+  workflow_dispatch:          # 可选：手动在 Actions 里点一下一样能跑
 
 jobs:
-  # --- 第一阶段：自动化测试 ---
+  # ================================
+  # 第一步：自动化测试
+  # ================================
   test:
-    name: 🧪 Unit & E2E Tests
+    name: 🤖 自动测试
     runs-on: ubuntu-latest
-    
-    # 启动 MySQL 服务
+
+    # 如果你确实需要 MySQL，就保留；不需要可以先删掉这段 services
     services:
       mysql:
         image: mysql:5.7
@@ -26,73 +22,76 @@ jobs:
           MYSQL_DATABASE: reader_db
         ports:
           - 3306:3306
-        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
 
     steps:
-    - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
 
-    - name: Install Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install fastapi uvicorn sqlalchemy pymysql python-multipart pytest playwright allure-pytest
-        playwright install chromium
-        playwright install-deps
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install fastapi uvicorn sqlalchemy pymysql python-multipart pytest playwright allure-pytest
+          playwright install chromium
+          playwright install-deps
 
-    - name: Start Backend
-      run: |
-        cd backend
-        export SQLALCHEMY_DATABASE_URL="mysql+pymysql://root:password@127.0.0.1:3306/reader_db"
-        nohup uvicorn main:app --host 0.0.0.0 --port 8000 > backend.log 2>&1 &
-        sleep 5
+      - name: Start backend
+        run: |
+          cd backend
+          export SQLALCHEMY_DATABASE_URL="mysql+pymysql://root:password@127.0.0.1:3306/reader_db"
+          nohup uvicorn main:app --host 0.0.0.0 --port 8000 > backend.log 2>&1 &
+          sleep 5
 
-    - name: Set up Node
-      uses: actions/setup-node@v3
-      with:
-        node-version: 18
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
 
-    - name: Start Frontend
-      run: |
-        cd frontend
-        npm install
-        nohup npm run dev -- --port 5173 > frontend.log 2>&1 &
-        sleep 5
+      - name: Start frontend
+        run: |
+          cd frontend
+          npm install
+          nohup npm run dev -- --port 5173 > frontend.log 2>&1 &
+          sleep 5
 
-    - name: Run Autotest Framework
-      run: |
-        export PYTHONPATH=$PYTHONPATH:.
-        python -m pytest autotest_framework/test_cases/ --alluredir=allure-results
+      - name: Run autotests
+        run: |
+          export PYTHONPATH=$PYTHONPATH:.
+          python -m pytest autotest_framework/test_cases/ --alluredir=allure-results
 
-    # 为了方便，我们在测试阶段就生成报告上传 Artifact，但不发布到 Pages
-    # 真实的 CD 流程通常在部署阶段发布文档，这里简化处理
-    - name: Upload Allure Results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: allure-results
-        path: allure-results
+      # 可选：把测试结果打包成构件，至少你在 Actions 里能下载回来看看
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: allure-results
 
-  # --- 第二阶段：生产环境部署 (需要人工审核) ---
+  # ================================
+  # 第二步：人工审核后部署
+  # ================================
   deploy:
-    name: 🚀 Deploy to Production
-    needs: test                         # 必须等 test 任务成功才能运行
-    if: github.ref == 'refs/heads/main' # 只在 main 分支运行 (PR 不部署)
+    name: 🚀 部署到生产
+    needs: test                 # 必须等 test 成功
     runs-on: ubuntu-latest
-    
-    # 【关键】绑定环境，触发人工审核
-    environment: 
+
+    # 这里绑定 Environment，用于“人工点一下再执行”
+    environment:
       name: Production
       url: https://github.com/${{ github.repository }}/deployments
 
     steps:
-      - name: Mock Deploy
+      - name: Mock deploy
         run: |
-          echo "正在连接生产服务器..."
-          echo "停止旧服务..."
-          echo "拉取最新镜像..."
-          echo "启动新容器..."
-          echo "✅ 部署成功！"
+          echo "🎉 测试通过，开始部署..."
+          echo "（这里写你自己的部署脚本，比如 ssh 到服务器、docker pull & restart 等）"
+          echo "✅ 部署完成"
