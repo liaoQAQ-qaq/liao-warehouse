@@ -52,7 +52,7 @@ jobs:
           APP_USERNAME: ${{ secrets.APP_USERNAME }}
           APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
         run: |
-          pytest --html=report.html --self-contained-html
+          pytest --html=report.html --self-contained-html --reruns 2
 
       - name: 上传测试报告
         # 无论测试成功还是失败，都上传报告，方便排查

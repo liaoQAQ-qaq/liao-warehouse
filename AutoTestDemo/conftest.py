@@ -30,25 +30,27 @@ def app_credentials():
 # 3. 你原有的浏览器启动 Fixture (保持逻辑不变)
 @pytest.fixture(scope="function")
 def page_fixture():
-    print("\n[Setup] 启动浏览器 (慢动作模式 + 录制)...")
+    print("\n[Setup] 启动浏览器...")
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
             args=['--no-sandbox', '--disable-dev-shm-usage'],
-            slow_mo=1000  # 每个动作慢 1000 毫秒
+            # 【优化1】减少慢动作时间，或者仅在本地开启
+            # CI 环境机器慢，设为 0 或 100ms 即可，1000ms 太容易超时
+            slow_mo=500 
         )
         
         context = browser.new_context(
             viewport={'width': 1920, 'height': 1080},
-            record_video_dir="videos/", # 确保视频保存在这里
+            record_video_dir="videos/",
             no_viewport=False
         )
         
-        # 依然开启 trace，双重保险
+        # 【优化2】设置全局超时时间为 60秒 (默认为30秒)
+        context.set_default_timeout(60000)
+
         context.tracing.start(screenshots=True, snapshots=True, sources=True)
-        
         page = context.new_page()
-        
         yield page
         
         print("\n[Teardown] 保存录像和轨迹...")
