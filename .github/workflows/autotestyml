@@ -1,0 +1,79 @@
+name: 自动化测试与审批流水线
+
+# 触发条件：当有 PR 提交到 main 分支，或 main 分支有代码推入时触发
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+# 权限设置：允许读取代码，允许写 Check 状态
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  # =================================================
+  # Job 1: 执行自动化测试
+  # =================================================
+  run-autotest:
+    name: 🔍 执行自动化测试 (Playwright)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./AutoTestDemo  # 你的项目代码目录
+
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: 'pip' # 开启 pip 缓存，加快运行速度
+
+      - name: 安装依赖
+        run: |
+          pip install -r requirements.txt
+          # 确保安装了 pytest-html 用于生成报告
+          # pip install pytest-html 
+
+      - name: 安装 Playwright 浏览器
+        run: |
+          playwright install chromium
+          playwright install-deps
+
+      - name: 运行 UI 自动化测试
+        # 核心命令：无头模式，生成 html 报告
+        # 如果测试失败，步骤会报错，导致 Job 失败，从而阻止后续步骤
+        run: |
+          pytest --html=report.html --self-contained-html
+
+      - name: 上传测试报告
+        # 无论测试成功还是失败，都上传报告，方便排查
+        if: always() 
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: ./AutoTestDemo/report.html
+          retention-days: 7
+
+  # =================================================
+  # Job 2: 人工审批门禁
+  # 只有当测试通过后，才会进入此环节等待人工确认
+  # =================================================
+  manual-check:
+    name: 👮‍♂️ 人工确认合并
+    needs: run-autotest  # 强依赖：必须等测试跑完且成功
+    runs-on: ubuntu-latest
+    
+    # 【关键】绑定环境，该环境在 GitHub 设置里配置了“必须人工审批”
+    environment: production-approval 
+
+    steps:
+      - name: 输出审批日志
+        run: |
+          echo "自动化测试已通过。"
+          echo "经人工审批 (Review) 后，此步骤通过，允许合并代码。"
