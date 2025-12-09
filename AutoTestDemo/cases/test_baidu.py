@@ -24,7 +24,7 @@ def test_baidu_search_100_times(page_fixture, user_id, search_word, expect):
     # 1. 初始化页面
     page = page_fixture
     baidu = BaiduPage(page)
-    
+    # 这是一个测试 CI 流程的注释
     # 2. 打开百度
     baidu.open()
     
@@ -40,3 +40,4 @@ def test_baidu_search_100_times(page_fixture, user_id, search_word, expect):
     
     # 断言：标题里应该包含我们搜的词
     assert expect in title
+    
