@@ -27,3 +27,4 @@ EOF
 
 weather_assistant/models/
 models/
+.env
