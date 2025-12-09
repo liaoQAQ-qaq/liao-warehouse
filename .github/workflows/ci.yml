@@ -1,0 +1,124 @@
+name: Online Reader CI/CD (Solo)
+
+on:
+  push:
+    branches:
+      - main            # 只要 push 到 main 就自动跑
+  workflow_dispatch:    # 可选：可以在 Actions 页面手动点 Run workflow
+
+permissions:
+  contents: read
+
+jobs:
+  # =========================
+  # 1) 自动化测试
+  # =========================
+  test:
+    name: 🤖 自动化测试
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:5.7
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: reader_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -ppassword"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ---------- Python & 后端 ----------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install backend & test deps
+        working-directory: ./online-reader-demo
+        run: |
+          python -m pip install --upgrade pip
+
+          # 后端依赖：有 requirements.txt 就按文件装，没有就按包名装
+          if [ -f backend/requirements.txt ]; then
+            pip install -r backend/requirements.txt
+          else
+            pip install fastapi uvicorn sqlalchemy pymysql python-multipart
+          fi
+
+          # 自动化测试相关依赖
+          pip install pytest playwright allure-pytest
+          playwright install chromium
+          playwright install-deps
+
+      - name: Start backend (FastAPI)
+        working-directory: ./online-reader-demo/backend
+        run: |
+          export SQLALCHEMY_DATABASE_URL="mysql+pymysql://root:password@127.0.0.1:3306/reader_db"
+          nohup uvicorn main:app --host 0.0.0.0 --port 8000 > ../../backend.log 2>&1 &
+          sleep 10
+
+      # ---------- Node & 前端 ----------
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install frontend deps
+        working-directory: ./online-reader-demo/frontend
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Start frontend (Vite)
+        working-directory: ./online-reader-demo/frontend
+        run: |
+          nohup npm run dev -- --host 0.0.0.0 --port 5173 > ../../frontend.log 2>&1 &
+          sleep 10
+
+      # ---------- 运行自动化测试 ----------
+      - name: Run autotest framework
+        working-directory: ./online-reader-demo
+        run: |
+          export PYTHONPATH=$PYTHONPATH:$(pwd)
+          pytest autotest_framework/test_cases \
+            -c autotest_framework/pytest.ini \
+            --alluredir=allure-results
+
+      - name: Upload allure results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: online-reader-demo/allure-results
+
+  # =========================
+  # 2) 部署（需要人工审核）
+  # =========================
+  deploy:
+    name: 🚀 部署到生产
+    needs: test                      # 必须等 test 成功
+    runs-on: ubuntu-latest
+    if: needs.test.result == 'success'
+
+    # 这里绑定 GitHub Settings -> Environments 里新建的环境，比如 Production
+    environment:
+      name: Production
+      url: https://github.com/${{ github.repository }}/deployments
+
+    steps:
+      - name: Mock deploy
+        run: |
+          echo "🎉 测试通过，开始部署 Online Reader ..."
+          echo "这里写你真实的部署脚本（ssh 登录服务器、docker pull & restart 等）"
+          echo "✅ 部署完成（当前为示意脚本）"
