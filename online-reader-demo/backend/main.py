@@ -9,7 +9,7 @@ from models import Base, engine, SessionLocal, Novel
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
-
+#******
 # 允许跨域
 app.add_middleware(
     CORSMiddleware,
