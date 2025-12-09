@@ -1,0 +1,98 @@
+name: CI/CD with Manual Approval
+
+on:
+  push:
+    branches: [ main ]      # 合并到 main 时触发
+  pull_request:
+    branches: [ main ]      # 提交 PR 时触发
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  # --- 第一阶段：自动化测试 ---
+  test:
+    name: 🧪 Unit & E2E Tests
+    runs-on: ubuntu-latest
+    
+    # 启动 MySQL 服务
+    services:
+      mysql:
+        image: mysql:5.7
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: reader_db
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install fastapi uvicorn sqlalchemy pymysql python-multipart pytest playwright allure-pytest
+        playwright install chromium
+        playwright install-deps
+
+    - name: Start Backend
+      run: |
+        cd backend
+        export SQLALCHEMY_DATABASE_URL="mysql+pymysql://root:password@127.0.0.1:3306/reader_db"
+        nohup uvicorn main:app --host 0.0.0.0 --port 8000 > backend.log 2>&1 &
+        sleep 5
+
+    - name: Set up Node
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18
+
+    - name: Start Frontend
+      run: |
+        cd frontend
+        npm install
+        nohup npm run dev -- --port 5173 > frontend.log 2>&1 &
+        sleep 5
+
+    - name: Run Autotest Framework
+      run: |
+        export PYTHONPATH=$PYTHONPATH:.
+        python -m pytest autotest_framework/test_cases/ --alluredir=allure-results
+
+    # 为了方便，我们在测试阶段就生成报告上传 Artifact，但不发布到 Pages
+    # 真实的 CD 流程通常在部署阶段发布文档，这里简化处理
+    - name: Upload Allure Results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: allure-results
+        path: allure-results
+
+  # --- 第二阶段：生产环境部署 (需要人工审核) ---
+  deploy:
+    name: 🚀 Deploy to Production
+    needs: test                         # 必须等 test 任务成功才能运行
+    if: github.ref == 'refs/heads/main' # 只在 main 分支运行 (PR 不部署)
+    runs-on: ubuntu-latest
+    
+    # 【关键】绑定环境，触发人工审核
+    environment: 
+      name: Production
+      url: https://github.com/${{ github.repository }}/deployments
+
+    steps:
+      - name: Mock Deploy
+        run: |
+          echo "正在连接生产服务器..."
+          echo "停止旧服务..."
+          echo "拉取最新镜像..."
+          echo "启动新容器..."
+          echo "✅ 部署成功！"
