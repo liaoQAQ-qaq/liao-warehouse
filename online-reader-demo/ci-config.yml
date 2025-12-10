@@ -4,7 +4,7 @@ language: python
 has_api: true
 
 # 开关控制
-enable_lint: false          # 先不卡 Lint，跑通流程为主
+enable_lint: true          # 先不卡 Lint，跑通流程为主
 enable_unit_test: true      # 开启核心测试
 enable_contract_test: false # 暂时关闭 API 合同测试
 enable_build: false         # 暂时不构建产物

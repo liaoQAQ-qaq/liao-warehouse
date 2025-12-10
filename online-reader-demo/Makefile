@@ -36,17 +36,14 @@ deps:
 #    这里负责：启动后端 + 前端，并等待端口就绪
 # ============================
 start-deps:
-	@echo ">>> Starting backend & frontend services..."
-
+	@echo ">>> Starting backend & frontend services..."	
 	@echo ">>> Starting backend (uvicorn on port $(BACKEND_PORT))..."
 	cd $(BACKEND_DIR) && \
 	  SQLALCHEMY_DATABASE_URL="$(SQLALCHEMY_DATABASE_URL)" \
-	  nohup uvicorn main:app --host 0.0.0.0 --port $(BACKEND_PORT) > backend.log 2>&1 &
-
+	  nohup uvicorn main:app --host 0.0.0.0 --port $(BACKEND_PORT) > backend.log 2>&1 &	
 	@echo ">>> Starting frontend (npm dev on port $(FRONTEND_PORT))..."
 	cd $(FRONTEND_DIR) && \
-	  nohup npm run dev -- --port $(FRONTEND_PORT) --host 0.0.0.0 > frontend.log 2>&1 &
-
+	  nohup npm run dev -- --port $(FRONTEND_PORT) --host 0.0.0.0 > frontend.log 2>&1 &	
 	@echo ">>> Waiting for backend & frontend to be ready..."
 	python - << 'PY'
 import socket, time, sys, pathlib
