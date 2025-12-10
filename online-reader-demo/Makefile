@@ -10,10 +10,10 @@ deps:
 	pip install -r backend/requirements.txt
 	pip install pytest playwright allure-pytest
 	playwright install chromium
-	
+
 	@echo ">>> [2/3] Installing Frontend Dependencies..."
 	cd frontend && npm install
-	
+
 	@echo ">>> [3/3] Dependencies Installed."
 
 # 2. 启动测试依赖 (这里留空，因为 CI 中我们会用 Service 和后台进程启动)
