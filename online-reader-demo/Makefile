@@ -18,6 +18,8 @@ FRONTEND_PORT := 5173
 # 数据库连接（给 FastAPI 用）
 # CI 环境中 MySQL 服务就是 root/password@127.0.0.1:3306/reader_db
 SQLALCHEMY_DATABASE_URL ?= mysql+pymysql://root:password@127.0.0.1:3306/reader_db
+IMAGE_NAME ?= online-reader-backend
+IMAGE_TAG  ?= $(shell git rev-parse --short HEAD)
 
 .PHONY: deps lint test contract-test build start-deps stop-deps ci help
 
@@ -65,15 +67,24 @@ lint:
 	# black --check .
 	# mypy .
 	# 或者前端的 eslint / prettier
+	@echo ">>> Running ruff..."
+	ruff check $(BACKEND_DIR)
+	@echo ">>> Running black (check mode)..."
+	black --check $(BACKEND_DIR)
+	@echo ">>> Running mypy..."
+	mypy $(BACKEND_DIR)
 
 # ============================
 # 4. 单元/集成/E2E 测试
 #    说明：运行 Pytest 并生成 Allure 报告数据
 # ============================
 test:
-	@echo ">>> Running Tests..."
+	@echo ">>> Running Tests with coverage..."
 	export PYTHONPATH=$$PYTHONPATH:. && \
-	python -m pytest $(TEST_DIR) --alluredir=$(REPORT_DIR)
+	pytest $(TEST_DIR) \
+	  --alluredir=$(REPORT_DIR) \
+	  --cov=$(BACKEND_DIR) \
+	  --cov-report=xml:coverage.xml
 
 # ============================
 # 5. API 合同测试
@@ -89,7 +100,8 @@ contract-test:
 #    说明：当前流程跳过构建步骤
 # ============================
 build:
-	@echo ">>> Build skipped."
+	@echo ">>> Building backend Docker image $(IMAGE_NAME):$(IMAGE_TAG)..."
+	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) -f backend/Dockerfile backend
 
 # ============================
 # 7. 本地一键 CI（开发自测）

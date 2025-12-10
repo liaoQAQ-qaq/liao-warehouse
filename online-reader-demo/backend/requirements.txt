@@ -4,6 +4,13 @@ sqlalchemy
 pymysql
 python-multipart
 pytest
-playwright
-
 allure-pytest
+# 测试 & 覆盖率
+pytest-cov
+# 质量工具
+ruff
+black
+mypy
+
+# Playwright（如果你还没写在这里的话）
+playwright
