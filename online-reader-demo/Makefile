@@ -28,6 +28,8 @@ SQLALCHEMY_DATABASE_URL ?= mysql+pymysql://root:password@127.0.0.1:3306/reader_d
 deps:
 	@echo ">>> Installing Backend Dependencies..."
 	pip install -r $(BACKEND_REQ)
+	@echo ">>> Installing Playwright browsers (chromium)..."
+	python -m playwright install chromium
 	@echo ">>> Installing Frontend Dependencies..."
 	cd $(FRONTEND_DIR) && npm install
 
