@@ -1,47 +1,104 @@
 # ============================
-# online-reader-demo/Makefile
+# 通用 Makefile 模板
 # ============================
 
 .PHONY: deps lint test contract-test build start-deps stop-deps ci help
-
-# 1. 安装依赖 (同时处理 Python 后端和 Node 前端)
+# ============================
+# 1. 安装依赖（各项目必须改成自己的实现）
+# ============================
 deps:
-	@echo ">>> [1/3] Installing Backend Dependencies..."
-	pip install -r backend/requirements.txt
-	pip install pytest playwright allure-pytest
-	playwright install chromium
-	
-	@echo ">>> [2/3] Installing Frontend Dependencies..."
-	cd frontend && npm install
-	
-	@echo ">>> [3/3] Dependencies Installed."
+	@echo "[INFO] deps not implemented, please customize in Makefile."
+	# Python 项目示例（请按需取消注释并修改）：
+	# python -m pip install --upgrade pip
+	# pip install -r requirements.txt
 
-# 2. 启动测试依赖 (这里留空，因为 CI 中我们会用 Service 和后台进程启动)
+	# Node 项目示例：
+	# npm ci
+
+	# Java 项目示例：
+	# ./mvnw dependency:resolve
+
+# ============================
+# 2. 启动/关闭测试依赖（DB/Redis 等）
+# ============================
 start-deps:
-	@echo ">>> Test dependencies are handled by CI/Docker."
+	@echo "[INFO] start-deps not implemented, skip."
+	# 推荐写成：
+	# docker compose -f docker-compose.ci.yml up -d
 
 stop-deps:
-	@echo ">>> Stopping dependencies..."
+	@echo "[INFO] stop-deps not implemented, skip."
+	# 推荐写成：
+	# docker compose -f docker-compose.ci.yml down
 
-# 3. 静态检查 (先跳过，以后可以加 flake8 或 eslint)
+# ============================
+# 3. 代码静态检查（lint）
+# ============================
 lint:
-	@echo ">>> Lint check skipped."
+	@echo "[INFO] lint not implemented, please customize."
+	# Python 示例：
+	# ruff check .
+	# black --check .
+	# mypy .
 
-# 4. 运行测试 (核心命令)
-# 注意：这里假设后端和前端已经在后台启动了
+	# Node 示例：
+	# npm run lint
+	# npm run typecheck
+
+# ============================
+# 4. 单元/集成测试
+# ============================
 test:
-	@echo ">>> Running E2E Tests..."
-	# 设置 PYTHONPATH 确保能找到包，并运行 pytest
-	export PYTHONPATH=$PYTHONPATH:. && \
-	python -m pytest autotest_framework/test_cases/ --alluredir=allure-results
+	@echo "[INFO] test not implemented, please customize."
+	# Python 示例：
+	# pytest -q
 
-# 5. 合同测试 (暂时跳过)
+	# Node 示例：
+	# npm test
+
+	# Java 示例：
+	# ./mvnw test
+
+# ============================
+# 5. API 合同测试（Schemathesis / Dredd）
+# ============================
 contract-test:
-	@echo ">>> Contract test skipped."
+	@echo "[INFO] contract-test not implemented, skip."
+	# 示例如下（使用 Schemathesis）：
+	# schemathesis run api-specs/openapi.yaml \
+	#   --base-url=http://127.0.0.1:8000
 
-# 6. 构建 (暂时跳过)
+# ============================
+# 6. 构建（包 / 镜像 / 前端产物）
+# ============================
 build:
-	@echo ">>> Build skipped."
+	@echo "[INFO] build not implemented, please customize."
+	# Python 包示例：
+	# python -m build
 
-# 7. 本地一键执行 (仅供参考，本地跑需要你先手动启动前后端)
-ci: deps test
+	# Docker 镜像示例：
+	# docker build -t your-image-name:$(TAG) .
+
+	# 前端示例：
+	# npm run build
+
+# ============================
+# 7. 本地一键 CI（开发自测）
+# ============================
+ci: deps start-deps lint test contract-test
+	@echo "[INFO] Local CI finished."
+	@$(MAKE) stop-deps
+
+# ============================
+# 8. 帮助
+# ============================
+help:
+	@echo "可用目标："
+	@echo "  make deps           安装依赖"
+	@echo "  make start-deps     启动测试依赖服务（DB/Redis 等）"
+	@echo "  make stop-deps      停止测试依赖服务"
+	@echo "  make lint           静态检查"
+	@echo "  make test           单元/集成测试"
+	@echo "  make contract-test  API 合同测试"
+	@echo "  make build          构建产物"
+	@echo "  make ci             本地一键跑 CI 流程"
