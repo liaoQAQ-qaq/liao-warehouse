@@ -27,59 +27,26 @@ SQLALCHEMY_DATABASE_URL ?= mysql+pymysql://root:password@127.0.0.1:3306/reader_d
 # ============================
 deps:
 	@echo ">>> Installing Backend Dependencies..."
-o ">>> Starting frontend (npm dev on port $(FRONTEND_PORT))..."
-	cd $(FRONTEND_DIR) && \
-	  nohup npm run dev -- --port $(FRONTEND_PORT) --host 0.0.0.0 > frontend.log 2>&1 &
-	@echo ">>> Waiting for backend & frontend to be ready..."
-	python - << 'PY'
-import socket, time, sys, pathlib
-
-def wait_for(host, port, name, timeout=60):
-    end = time.time() + timeout
-    while time.time() < end:
-      	pip install -r $(BACKEND_REQ)
+	pip install -r $(BACKEND_REQ)
 	@echo ">>> Installing Frontend Dependencies..."
 	cd $(FRONTEND_DIR) && npm install
 
 # ============================
 # 2. 启动/关闭测试依赖（DB/Redis/服务等）
-#    这里负责：启动后端 + 前端，并等待端口就绪
+#    这里负责：启动后端 + 前端，并等待一段时间
 # ============================
 start-deps:
 	@echo ">>> Starting backend & frontend services..."
 	@echo ">>> Starting backend (uvicorn on port $(BACKEND_PORT))..."
 	cd $(BACKEND_DIR) && \
 	  SQLALCHEMY_DATABASE_URL="$(SQLALCHEMY_DATABASE_URL)" \
-		try:
-			s.settimeout(1)
-			s.connect((host, port))
-		except OSError:
-			time.sleep(1)
-		else:
-			print(f"✅ {name} is up on {host}:{port}")
-			s.close()
-			return True
-	print(f"❌ {name} failed to start on {host}:{port} within {timeout}s")	
-	if name == "backend":
-		log_path = pathlib.Path("backend") / "backend.log"
-	elif name == "frontend":
-		log_path = pathlib.Path("frontend") / "frontend.log"
-	else:
-		log_path = None	
-	if log_path and log_path.exists():
-		print(f"=== Last 4000 bytes of {log_path} ===")
-		data = log_path.read_bytes()
-		print(data[-4000:].decode(errors="ignore"))
-	else:
-		print(f"(log file {log_path} not found)")	
-	sys.exit(	  nohup uvicorn main:app --host 0.0.0.0 --port $(BACKEND_PORT) > backend.log 2>&1 &
-	@ech  s = socket.socket()
-1)
-
-wait_for("127.0.0.1", int("$(BACKEND_PORT)"), "backend")
-wait_for("127.0.0.1", int("$(FRONTEND_PORT)"), "frontend")
-PY
-	@echo ">>> All services are up."
+	  nohup uvicorn main:app --host 0.0.0.0 --port $(BACKEND_PORT) > backend.log 2>&1 &
+	@echo ">>> Starting frontend (npm dev on port $(FRONTEND_PORT))..."
+	cd $(FRONTEND_DIR) && \
+	  nohup npm run dev -- --port $(FRONTEND_PORT) --host 0.0.0.0 > frontend.log 2>&1 &
+	@echo ">>> Sleeping 30 seconds for services to start..."
+	sleep 30
+	@echo "✅ All services are assumed up."
 
 stop-deps:
 	@echo ">>> stop-deps is currently a no-op. Services will exit with CI job."
@@ -134,7 +101,7 @@ ci: deps start-deps test
 help:
 	@echo "可用目标："
 	@echo "  make deps           安装前后端依赖"
-	@echo "  make start-deps     启动后端和前端，并等待端口就绪"
+	@echo "  make start-deps     启动后端和前端，并等待一段时间"
 	@echo "  make stop-deps      停止依赖（当前只是占位）"
 	@echo "  make lint           静态检查（当前跳过）"
 	@echo "  make test           运行 E2E 测试并生成 Allure 结果"
