@@ -5,7 +5,12 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-
+# --- 👇 新增这段权限声明 👇 ---
+permissions:
+  contents: write    # 允许写入代码 (推送到 gh-pages 分支)
+  pages: write       # 允许部署 GitHub Pages
+  id-token: write    # 身份认证所需
+# -----------------------------
 jobs:
   # ============================
   # 1. 读取配置 & 预检查
