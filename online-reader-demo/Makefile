@@ -36,14 +36,14 @@ deps:
 #    这里负责：启动后端 + 前端，并等待端口就绪
 # ============================
 start-deps:
-	@echo ">>> Starting backend & frontend services..."	
+	@echo ">>> Starting backend & frontend services..."
 	@echo ">>> Starting backend (uvicorn on port $(BACKEND_PORT))..."
 	cd $(BACKEND_DIR) && \
 	  SQLALCHEMY_DATABASE_URL="$(SQLALCHEMY_DATABASE_URL)" \
-	  nohup uvicorn main:app --host 0.0.0.0 --port $(BACKEND_PORT) > backend.log 2>&1 &	
+	  nohup uvicorn main:app --host 0.0.0.0 --port $(BACKEND_PORT) > backend.log 2>&1 &
 	@echo ">>> Starting frontend (npm dev on port $(FRONTEND_PORT))..."
 	cd $(FRONTEND_DIR) && \
-	  nohup npm run dev -- --port $(FRONTEND_PORT) --host 0.0.0.0 > frontend.log 2>&1 &	
+	  nohup npm run dev -- --port $(FRONTEND_PORT) --host 0.0.0.0 > frontend.log 2>&1 &
 	@echo ">>> Waiting for backend & frontend to be ready..."
 	python - << 'PY'
 import socket, time, sys, pathlib
@@ -63,15 +63,14 @@ def wait_for(host, port, name, timeout=60):
             return True
     print(f"❌ {name} failed to start on {host}:{port} within {timeout}s")
 
-    # 打印对应服务日志，方便排查
-    log_path = pathlib.Path(name) / f"{name}.log"
-    # 特殊处理：backend 日志在 backend/backend.log，frontend 在 frontend/frontend.log
     if name == "backend":
         log_path = pathlib.Path("backend") / "backend.log"
     elif name == "frontend":
         log_path = pathlib.Path("frontend") / "frontend.log"
+    else:
+        log_path = None
 
-    if log_path.exists():
+    if log_path and log_path.exists():
         print(f"=== Last 4000 bytes of {log_path} ===")
         data = log_path.read_bytes()
         print(data[-4000:].decode(errors="ignore"))
@@ -83,7 +82,6 @@ def wait_for(host, port, name, timeout=60):
 wait_for("127.0.0.1", int("$(BACKEND_PORT)"), "backend")
 wait_for("127.0.0.1", int("$(FRONTEND_PORT)"), "frontend")
 PY
-
 	@echo ">>> All services are up."
 
 stop-deps:
