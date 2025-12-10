@@ -73,3 +73,9 @@ def delete_novel(novel_id: int, db: Session = Depends(get_db)):
     db.delete(novel)
     db.commit()
     return {"detail": "Deleted successfully"}
+
+if __name__ == "__main__":
+    import uvicorn
+    # 第一个参数是字符串格式的 "文件名:实例名"
+    # reload=True 表示代码修改后自动重启 (开发模式)
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

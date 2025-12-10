@@ -1,114 +1,115 @@
-name: 在线阅读项目CI/CD流水线（单人模式）
+name: CI/CD Pipeline
 
 on:
   push:
-    branches:
-      - main            # 只要 push 到 main 就自动跑
-  workflow_dispatch:    # 可选：可以在 Actions 页面手动点 Run workflow
-
-permissions:
-  contents: read
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
-  # =========================
-  # 1) 自动化测试
-  # =========================
-  test:
-    name: 🤖 自动化测试（online-reader-demo）
+  # ============================
+  # 1. 读取配置 & 预检查
+  # ============================
+  precheck:
     runs-on: ubuntu-latest
-
+    # 这一步不需要进入子目录，只需要检出代码
+    outputs:
+      enable_lint: ${{ steps.config.outputs.enable_lint }}
+      enable_unit_test: ${{ steps.config.outputs.enable_unit_test }}
     steps:
-      - name: 拉取代码
-        uses: actions/checkout@v4
-
-      # ---------- Python & 后端 ----------
-      - name: 安装 Python 环境
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: 安装后端和自动化测试依赖（SQLite）
-        working-directory: ./online-reader-demo
+      - uses: actions/checkout@v4
+      
+      - name: Read Configuration
+        id: config
+        working-directory: online-reader-demo  # 指定读取配置文件的目录
         run: |
-          python -m pip install --upgrade pip
-
-          # 后端依赖：有 requirements.txt 就按文件装，没有就按包名装
-          if [ -f backend/requirements.txt ]; then
-            pip install -r backend/requirements.txt
+          # 简单解析 YAML 里的 enable_unit_test: true/false
+          # 如果 grep 到了 true 设为 true，否则 false
+          if grep -q "enable_unit_test: true" ci-config.yml; then
+            echo "enable_unit_test=true" >> $GITHUB_OUTPUT
           else
-            # 注意：已经去掉 pymysql，因为我们不再用 MySQL
-            pip install fastapi uvicorn sqlalchemy python-multipart
+            echo "enable_unit_test=false" >> $GITHUB_OUTPUT
+          fi
+          
+          if grep -q "enable_lint: true" ci-config.yml; then
+            echo "enable_lint=true" >> $GITHUB_OUTPUT
+          else
+            echo "enable_lint=false" >> $GITHUB_OUTPUT
           fi
 
-          # 自动化测试相关依赖
-          pip install pytest playwright allure-pytest
-          playwright install chromium
-          playwright install-deps
+  # ============================
+  # 2. 核心测试任务
+  # ============================
+  test:
+    needs: precheck
+    if: ${{ needs.precheck.outputs.enable_unit_test == 'true' }}
+    runs-on: ubuntu-latest
+    
+    # 全局设定：所有 run 命令默认在 online-reader-demo 目录下执行
+    defaults:
+      run:
+        working-directory: online-reader-demo
 
-      - name: 启动后端服务（FastAPI + SQLite）
-        working-directory: ./online-reader-demo/backend
-        run: |
-          # 如果你的项目用环境变量来读取数据库配置，这里显式指定 SQLite 连接
-          # 如果你项目里已经写死了 sqlite 的 URL，可以把这一行删掉
-          export SQLALCHEMY_DATABASE_URL="sqlite:///./online_reader.db"
+    # 启动 MySQL 服务
+    services:
+      mysql:
+        image: mysql:5.7
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: reader_db
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
 
-          nohup uvicorn main:app --host 0.0.0.0 --port 8000 > ../../backend.log 2>&1 &
-          sleep 10
+    steps:
+      - uses: actions/checkout@v4
 
-      # ---------- Node & 前端 ----------
-      - name: 安装 Node 环境
-        uses: actions/setup-node@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Set up Node
+        uses: actions/setup-node@v3
         with:
           node-version: 18
 
-      - name: 安装前端依赖
-        working-directory: ./online-reader-demo/frontend
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install
-          fi
+      # 1. 调用 Makefile 安装依赖
+      - name: Install Dependencies (Make deps)
+        run: make deps
 
-      - name: 启动前端服务（Vite）
-        working-directory: ./online-reader-demo/frontend
+      # 2. 启动应用 (显式启动，因为这是测试的前置条件)
+      - name: Start Backend & Frontend
         run: |
-          nohup npm run dev -- --host 0.0.0.0 --port 5173 > ../../frontend.log 2>&1 &
+          # 启动后端
+          cd backend
+          export SQLALCHEMY_DATABASE_URL="mysql+pymysql://root:password@127.0.0.1:3306/reader_db"
+          nohup uvicorn main:app --host 0.0.0.0 --port 8000 > backend.log 2>&1 &
+          
+          # 启动前端
+          cd ../frontend
+          nohup npm run dev -- --port 5173 > frontend.log 2>&1 &
+          
+          # 等待启动
           sleep 10
 
-      # ---------- 运行自动化测试 ----------
-      - name: 运行自动化测试用例
-        working-directory: ./online-reader-demo
-        run: |
-          export PYTHONPATH=$PYTHONPATH:$(pwd)
-          pytest autotest_framework/test_cases \
-            -c autotest_framework/pytest.ini \
-            --alluredir=allure-results
+      # 3. 调用 Makefile 运行测试
+      - name: Run Tests (Make test)
+        run: make test
 
-      - name: 上传 Allure 测试结果
+      # 4. 生成报告 (无论成功失败)
+      - name: Generate Allure Report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: simple-elf/allure-report-action@master
         with:
-          name: allure-results
-          path: online-reader-demo/allure-results
+          allure_results: online-reader-demo/allure-results  # 注意路径
+          allure_history: allure-history
+          keep_reports: 20
 
-  # =========================
-  # 2) 部署（需要人工审核）
-  # =========================
-  deploy:
-    name: 🚀 生产环境部署（需人工审核）
-    needs: test                      # 必须等 test 成功
-    runs-on: ubuntu-latest
-    if: needs.test.result == 'success'
-
-    # 这里绑定 GitHub Settings -> Environments 里新建的环境，比如 Production
-    environment:
-      name: Production
-      url: https://github.com/${{ github.repository }}/deployments
-
-    steps:
-      - name: 模拟部署脚本
-        run: |
-          echo "🎉 测试通过，开始部署 Online Reader ..."
-          echo "这里写你真实的部署脚本（ssh 登录服务器、docker pull & restart 等）"
-          echo "✅ 部署完成（当前为示意脚本）"
+      - name: Publish Report
+        if: always()
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: allure-history
