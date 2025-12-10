@@ -5,19 +5,18 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-# --- 👇 新增这段权限声明 👇 ---
+
 permissions:
-  contents: write    # 允许写入代码 (推送到 gh-pages 分支)
-  pages: write       # 允许部署 GitHub Pages
-  id-token: write    # 身份认证所需
-# -----------------------------
+  contents: write
+  pages: write
+  id-token: write
+
 jobs:
   # ============================
   # 1. 读取配置 & 预检查
   # ============================
   precheck:
     runs-on: ubuntu-latest
-    # 这一步不需要进入子目录，只需要检出代码
     outputs:
       enable_lint: ${{ steps.config.outputs.enable_lint }}
       enable_unit_test: ${{ steps.config.outputs.enable_unit_test }}
@@ -26,16 +25,13 @@ jobs:
       
       - name: Read Configuration
         id: config
-        working-directory: online-reader-demo  # 指定读取配置文件的目录
+        working-directory: online-reader-demo
         run: |
-          # 简单解析 YAML 里的 enable_unit_test: true/false
-          # 如果 grep 到了 true 设为 true，否则 false
           if grep -q "enable_unit_test: true" ci-config.yml; then
             echo "enable_unit_test=true" >> $GITHUB_OUTPUT
           else
             echo "enable_unit_test=false" >> $GITHUB_OUTPUT
           fi
-          
           if grep -q "enable_lint: true" ci-config.yml; then
             echo "enable_lint=true" >> $GITHUB_OUTPUT
           else
@@ -50,12 +46,10 @@ jobs:
     if: ${{ needs.precheck.outputs.enable_unit_test == 'true' }}
     runs-on: ubuntu-latest
     
-    # 全局设定：所有 run 命令默认在 online-reader-demo 目录下执行
     defaults:
       run:
         working-directory: online-reader-demo
 
-    # 启动 MySQL 服务
     services:
       mysql:
         image: mysql:5.7
@@ -79,11 +73,10 @@ jobs:
         with:
           node-version: 18
 
-      # 1. 调用 Makefile 安装依赖
       - name: Install Dependencies (Make deps)
         run: make deps
 
-      # 2. 启动应用 (显式启动，因为这是测试的前置条件)
+      # --- 👇 修复点 1：前端增加 --host 参数，并增加启动检测 👇 ---
       - name: Start Backend & Frontend
         run: |
           # 启动后端
@@ -91,23 +84,34 @@ jobs:
           export SQLALCHEMY_DATABASE_URL="mysql+pymysql://root:password@127.0.0.1:3306/reader_db"
           nohup uvicorn main:app --host 0.0.0.0 --port 8000 > backend.log 2>&1 &
           
-          # 启动前端
+          # 启动前端 (增加 --host 参数)
           cd ../frontend
-          nohup npm run dev -- --port 5173 > frontend.log 2>&1 &
+          nohup npm run dev -- --port 5173 --host > frontend.log 2>&1 &
           
-          # 等待启动
-          sleep 10
+          echo "正在等待服务启动..."
+          sleep 15
+          
+          echo "检查端口监听状态:"
+          netstat -tuln | grep -E '8000|5173' || true
 
-      # 3. 调用 Makefile 运行测试
       - name: Run Tests (Make test)
         run: make test
 
-      # 4. 生成报告 (无论成功失败)
+      # --- 👇 修复点 2：如果失败，打印日志让我们看清真相 👇 ---
+      - name: Debug - Print Logs on Failure
+        if: failure()  # 只有失败时才跑
+        run: |
+          echo "============= BACKEND LOG ============="
+          cat backend/backend.log
+          echo ""
+          echo "============= FRONTEND LOG ============="
+          cat frontend/frontend.log
+
       - name: Generate Allure Report
         if: always()
         uses: simple-elf/allure-report-action@master
         with:
-          allure_results: online-reader-demo/allure-results  # 注意路径
+          allure_results: online-reader-demo/allure-results
           allure_history: allure-history
           keep_reports: 20
 
