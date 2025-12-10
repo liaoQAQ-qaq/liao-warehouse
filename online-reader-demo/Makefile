@@ -61,18 +61,12 @@ stop-deps:
 #    说明：当前流程跳过 lint 检查
 # ============================
 lint:
-	@echo ">>> Lint check skipped."
-	# 以后可以在这里加：
-	# ruff check .
-	# black --check .
-	# mypy .
-	# 或者前端的 eslint / prettier
 	@echo ">>> Running ruff..."
-	ruff check $(BACKEND_DIR)
+	ruff check backend
 	@echo ">>> Running black (check mode)..."
-	black --check $(BACKEND_DIR)
+	black --check backend
 	@echo ">>> Running mypy..."
-	mypy $(BACKEND_DIR)
+	mypy backend
 
 # ============================
 # 4. 单元/集成/E2E 测试
