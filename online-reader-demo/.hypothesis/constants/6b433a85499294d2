@@ -1,0 +1,4 @@
+# file: /home/liaozhenhao/miniconda3/envs/online-reader-demo/bin/schemathesis
+# hypothesis_version: 6.148.7
+
+['.exe', '__main__']

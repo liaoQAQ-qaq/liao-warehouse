@@ -5,6 +5,8 @@
 # ============================
 # 配置变量（接入新项目时仅需修改这里）
 # ============================
+
+
 BACKEND_REQ   := backend/requirements.txt
 BACKEND_DIR   := backend
 FRONTEND_DIR  := frontend
@@ -15,9 +17,12 @@ REPORT_DIR    := allure-results
 BACKEND_PORT  := 8000
 FRONTEND_PORT := 5173
 
+# API 合同测试配置
+OPENAPI_SPEC := api-specs/openapi.yaml
+BASE_URL     := http://127.0.0.1:$(BACKEND_PORT)
 # 数据库连接（给 FastAPI 用）
 # CI 环境中 MySQL 服务就是 root/password@127.0.0.1:3306/reader_db
-SQLALCHEMY_DATABASE_URL ?= mysql+pymysql://root:password@127.0.0.1:3306/reader_db
+SQLALCHEMY_DATABASE_URL ?= sqlite:///./reader.db
 IMAGE_NAME ?= online-reader-backend
 IMAGE_TAG  ?= $(shell git rev-parse --short HEAD)
 
@@ -41,6 +46,7 @@ deps:
 # ============================
 start-deps:
 	@echo ">>> Starting backend & frontend services..."
+	- pkill -f "uvicorn main:app" || true
 	@echo ">>> Starting backend (uvicorn on port $(BACKEND_PORT))..."
 	cd $(BACKEND_DIR) && \
 	  SQLALCHEMY_DATABASE_URL="$(SQLALCHEMY_DATABASE_URL)" \
@@ -85,9 +91,14 @@ test:
 #    说明：当前流程跳过合同测试
 # ============================
 contract-test:
-	@echo ">>> Contract test skipped."
-	# 将来如果接 Schemathesis，可以写：
-	# schemathesis run api-specs/openapi.yaml --base-url=http://127.0.0.1:$(BACKEND_PORT)
+	@echo ">>> Running Schemathesis contract tests (FAST mode)..."
+	schemathesis run $(OPENAPI_SPEC) \
+	  --url=$(BASE_URL) \
+	  --phases=fuzzing,stateful \
+	  --checks=all \
+	  --max-examples=10 \
+	  --request-timeout=5.0 \
+	  --max-response-time=4.0
 
 # ============================
 # 6. 构建（包 / 镜像 / 前端产物）

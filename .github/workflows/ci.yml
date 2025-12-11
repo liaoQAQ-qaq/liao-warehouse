@@ -69,6 +69,11 @@ jobs:
     if: ${{ needs.precheck.outputs.enable_unit_test == 'true' }}
     runs-on: ubuntu-latest
 
+  ontract-test:
+    needs: [precheck, test]
+    if: ${{ needs.precheck.outputs.enable_contract_test == 'true' && needs.test.result == 'success' }}
+    runs-on: ubuntu-latest
+    
     defaults:
       run:
         working-directory: ${{ env.PROJECT_DIR }}

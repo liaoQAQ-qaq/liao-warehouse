@@ -1,0 +1,203 @@
+openapi: 3.1.0
+info:
+  title: Online Reader API
+  version: 1.0.0
+servers:
+  - url: http://127.0.0.1:8000
+
+paths:
+  /upload/:
+    post:
+      summary: Upload a novel file
+      operationId: uploadNovel
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required:
+                - file
+      responses:
+        "200":
+          description: Novel uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NovelListItem"
+        "400":
+          description: Unsupported encoding
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+
+  /novels/:
+    get:
+      summary: List novels
+      operationId: listNovels
+      parameters:
+        - in: query
+          name: skip
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            
+      responses:
+        "200":
+          description: List of novels
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NovelListItem"
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+
+  /novels/{novel_id}:
+    get:
+      summary: Get novel by ID
+      operationId: getNovel
+      parameters:
+        - in: path
+          name: novel_id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Novel detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NovelDetail"
+        "404":
+          description: Novel not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+    delete:
+      summary: Delete novel by ID
+      operationId: deleteNovel
+      parameters:
+        - in: path
+          name: novel_id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResponse"
+        "404":
+          description: Novel not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Validation error (invalid novel_id path parameter)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+
+components:
+  schemas:
+    NovelListItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+      required:
+        - id
+        - title
+
+    NovelDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        content:
+          type: string
+      required:
+        - id
+        - title
+        - content
+
+    DeleteResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+        - detail
+
+    Error:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+        - detail
+
+    HTTPValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items:
+                  oneOf:
+                    - type: string
+                    - type: integer
+              msg:
+                type: string
+              type:
+                type: string
+            required:
+              - loc
+              - msg
+              - type

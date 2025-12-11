@@ -14,3 +14,4 @@ mypy
 
 # Playwright（如果你还没写在这里的话）
 playwright
+schemathesis
