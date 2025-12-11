@@ -2,6 +2,7 @@ openapi: 3.1.0
 info:
   title: Online Reader API
   version: 1.0.0
+
 servers:
   - url: http://127.0.0.1:8000
 
@@ -20,6 +21,9 @@ paths:
                 file:
                   type: string
                   format: binary
+                  description: >
+                    Text novel file uploaded via multipart/form-data.
+                    The backend will try to decode content as UTF-8 first, then GBK.
               required:
                 - file
       responses:
@@ -61,7 +65,6 @@ paths:
             type: integer
             minimum: 1
             maximum: 100
-            
       responses:
         "200":
           description: List of novels
