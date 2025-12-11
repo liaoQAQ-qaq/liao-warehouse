@@ -2,7 +2,6 @@ openapi: 3.1.0
 info:
   title: Online Reader API
   version: 1.0.0
-
 servers:
   - url: http://127.0.0.1:8000
 
@@ -23,7 +22,7 @@ paths:
                   format: binary
                   description: >
                     Text novel file uploaded via multipart/form-data.
-                    The backend will try to decode content as UTF-8 first, then GBK.
+                    Content will be decoded as UTF-8 or GBK.
               required:
                 - file
       responses:
@@ -33,8 +32,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/NovelListItem"
+          # ✅ 关键：告诉 Schemathesis 如何从返回值中的 id 继续调用其他接口
+          links:
+            GetUploadedNovel:
+              operationId: getNovel
+              parameters:
+                novel_id: "$response.body#/id"
+            DeleteUploadedNovel:
+              operationId: deleteNovel
+              parameters:
+                novel_id: "$response.body#/id"
         "400":
-          description: Unsupported encoding
+          description: Unsupported encoding or empty file
           content:
             application/json:
               schema:
@@ -91,6 +100,7 @@ paths:
           required: true
           schema:
             type: integer
+            minimum: 1
       responses:
         "200":
           description: Novel detail
@@ -110,6 +120,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HTTPValidationError"
+
     delete:
       summary: Delete novel by ID
       operationId: deleteNovel
@@ -119,6 +130,7 @@ paths:
           required: true
           schema:
             type: integer
+            minimum: 1
       responses:
         "200":
           description: Deleted successfully

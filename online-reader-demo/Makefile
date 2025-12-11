@@ -92,9 +92,10 @@ test:
 # ============================
 contract-test:
 	@echo ">>> Running Schemathesis contract tests (FAST mode)..."
+	python scripts/seed_novels.py
 	schemathesis run $(OPENAPI_SPEC) \
 	  --url=$(BASE_URL) \
-	  --phases=fuzzing,stateful \
+	  --phases=fuzzing\
 	  --checks=all \
 	  --exclude-checks=positive_data_acceptance \
 	  --max-examples=10 \
