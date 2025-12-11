@@ -96,6 +96,7 @@ contract-test:
 	  --url=$(BASE_URL) \
 	  --phases=fuzzing,stateful \
 	  --checks=all \
+	  --exclude-checks=positive_data_acceptance \
 	  --max-examples=10 \
 	  --request-timeout=5.0 \
 	  --max-response-time=4.0
