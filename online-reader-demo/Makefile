@@ -64,7 +64,6 @@ stop-deps:
 
 # ============================
 # 3. 代码静态检查（lint）
-#    说明：当前流程跳过 lint 检查
 # ============================
 lint:
 	@echo ">>> Running ruff..."
@@ -88,7 +87,6 @@ test:
 
 # ============================
 # 5. API 合同测试
-#    说明：当前流程跳过合同测试
 # ============================
 contract-test:
 	@echo ">>> Running Schemathesis contract tests (FAST mode)..."
