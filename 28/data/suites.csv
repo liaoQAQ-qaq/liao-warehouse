@@ -1,2 +1,0 @@
-"DESCRIPTION","DURATION IN MS","NAME","PARENT SUITE","START TIME","STATUS","STOP TIME","SUB SUITE","SUITE","TEST CLASS","TEST METHOD"
-"","2551","测试上传一本小说并成功显示","test_cases","Thu Dec 11 09:14:54 UTC 2025","passed","Thu Dec 11 09:14:56 UTC 2025","TestNovelManagement","test_novel_flow","",""
