@@ -1,140 +1,209 @@
 # ============================
-# 通用 Makefile 模板 (E2E Test Focused)
+# Universal Makefile Skeleton v2.1
+# - Lint: ruff + black + mypy
+# - Unit(API) tests: pytest + coverage.xml (Codecov)
+# - E2E(UI) tests: pytest + Playwright + Allure
+# - Contract tests: Schemathesis (fuzzing only)
 # ============================
 
-# ============================
-# 配置变量（接入新项目时仅需修改这里）
-# ============================
+SHELL := /bin/bash
+.DEFAULT_GOAL := help
 
+# ----------------------------
+# Project layout (only edit here for new projects)
+# ----------------------------
+BACKEND_DIR   ?= backend
+FRONTEND_DIR  ?= frontend
 
-BACKEND_REQ   := backend/requirements.txt
-BACKEND_DIR   := backend
-FRONTEND_DIR  := frontend
-TEST_DIR      := autotest_framework/test_cases/
-REPORT_DIR    := allure-results
+BACKEND_REQ   ?= $(BACKEND_DIR)/requirements.txt
+TEST_API_DIR  ?= $(BACKEND_DIR)/tests
+TEST_E2E_DIR  ?= autotest_framework/test_cases
 
-# 服务端口配置（CI 和本地统一）
-BACKEND_PORT  := 8000
-FRONTEND_PORT := 5173
+REPORT_DIR    ?= allure-results
 
-# API 合同测试配置
-OPENAPI_SPEC := api-specs/openapi.yaml
-BASE_URL     := http://127.0.0.1:$(BACKEND_PORT)
-# 数据库连接（给 FastAPI 用）
-# CI 环境中 MySQL 服务就是 root/password@127.0.0.1:3306/reader_db
+# Ports (CI & local unified)
+BACKEND_HOST  ?= 0.0.0.0
+BACKEND_PORT  ?= 8000
+FRONTEND_HOST ?= 0.0.0.0
+FRONTEND_PORT ?= 5173
+
+# Uvicorn app import path (IMPORTANT: package path)
+BACKEND_APP   ?= backend.main:app
+
+# DB URL (FastAPI reads it as env)
 SQLALCHEMY_DATABASE_URL ?= sqlite:///./reader.db
+
+# OpenAPI / Contract testing
+OPENAPI_SPEC ?= api-specs/openapi.yaml
+BASE_URL     ?= http://127.0.0.1:$(BACKEND_PORT)
+SCHEM_MAX_EXAMPLES ?= 10
+SCHEM_TIMEOUT ?= 5.0
+SCHEM_MAX_RT ?= 4.0
+
+# Docker
 IMAGE_NAME ?= online-reader-backend
 IMAGE_TAG  ?= $(shell git rev-parse --short HEAD)
 
-.PHONY: deps lint test contract-test build start-deps stop-deps ci help
+.PHONY: deps deps-backend deps-frontend playwright-install \
+        lint fmt mypy unit-test e2e-test \
+        start-backend start-frontend wait-backend wait-frontend start-deps stop-deps \
+        contract-test build ci help
 
-# ============================
-# 1. 安装依赖
-#    说明：包含 Backend (pip) 和 Frontend (npm) 的依赖安装
-# ============================
-deps:
-	@echo ">>> Installing Backend Dependencies..."
+# ----------------------------
+# Dependencies
+# ----------------------------
+deps: deps-backend deps-frontend playwright-install
+
+deps-backend:
+	@echo ">>> [deps-backend] pip install -r $(BACKEND_REQ)"
 	pip install -r $(BACKEND_REQ)
-	@echo ">>> Installing Playwright browsers (chromium)..."
-	python -m playwright install chromium
-	@echo ">>> Installing Frontend Dependencies..."
+
+deps-frontend:
+	@echo ">>> [deps-frontend] npm install"
 	cd $(FRONTEND_DIR) && npm install
 
-# ============================
-# 2. 启动/关闭测试依赖（DB/Redis/服务等）
-#    这里负责：启动后端 + 前端，并等待一段时间
-# ============================
-start-deps:
-	@echo ">>> Starting backend & frontend services..."
-	- pkill -f "uvicorn backend.main:app" || true
-	- pkill -f "npm run dev" || true
+playwright-install:
+	@echo ">>> [playwright] install chromium (browsers)"
+	python -m playwright install chromium
 
-	@echo ">>> Starting backend (uvicorn on port $(BACKEND_PORT))..."
-	SQLALCHEMY_DATABASE_URL="$(SQLALCHEMY_DATABASE_URL)" \
-	  nohup uvicorn backend.main:app --host 0.0.0.0 --port $(BACKEND_PORT) > backend/backend.log 2>&1 &
-
-	@echo ">>> Starting frontend (npm dev on port $(FRONTEND_PORT))..."
-	cd $(FRONTEND_DIR) && \
-	  nohup npm run dev -- --port $(FRONTEND_PORT) --host 0.0.0.0 > ../frontend/frontend.log 2>&1 &
-
-	@echo ">>> ⏳ Waiting for services to be ready (instead of sleep)..."
-	# 使用 npx wait-on 等待 TCP 端口响应，超时设置为 60秒
-	npx wait-on tcp:$(BACKEND_PORT) tcp:$(FRONTEND_PORT) --timeout 60000
-	@echo "✅ All services are up and running!"
-
-stop-deps:
-	@echo ">>> stop-deps is currently a no-op. Services will exit with CI job."
-	@echo ">>> 如果需要，可以在这里实现 pkill/kill 等停止逻辑。"
-
-# ============================
-# 3. 代码静态检查（lint）
-# ============================
+# ----------------------------
+# Lint / Format
+# ----------------------------
 lint:
-	@echo ">>> Running ruff..."
-	ruff check backend
-	@echo ">>> Running black (check mode)..."
-	black --check backend
-	@echo ">>> Running mypy..."
-	mypy --explicit-package-bases backend
-# === 覆盖率用的后端单元 / API 测试 ===
+	@echo ">>> [lint] ruff"
+	ruff check $(BACKEND_DIR)
+	@echo ">>> [lint] black"
+	black --check $(BACKEND_DIR)
+	@echo ">>> [lint] mypy"
+	MYPYPATH=. mypy --explicit-package-bases $(BACKEND_DIR)
+
+fmt:
+	@echo ">>> [fmt] black + ruff --fix"
+	black $(BACKEND_DIR)
+	ruff check $(BACKEND_DIR) --fix
+
+mypy:
+	@echo ">>> [mypy] mypy"
+	MYPYPATH=. mypy --explicit-package-bases $(BACKEND_DIR)
+
+# ----------------------------
+# Unit/API tests (coverage for Codecov)
+# NOTE:
+#   - 只跑 backend/tests (不要放 Playwright 的 page fixture 用例在这里)
+#   - 产出 coverage.xml 在项目根目录 (online-reader-demo/coverage.xml)
+# ----------------------------
 unit-test:
-	@echo ">>> Running backend unit/API tests with coverage..."
-	# 使用 --ignore 跳过在这个目录下的 E2E 文件，只跑 API 测试
-	PYTHONPATH=. pytest backend/tests \
-	  --ignore=backend/tests/test_e2e.py \
-	  --cov=backend \
+	@echo ">>> [unit-test] pytest backend/tests + coverage.xml"
+	PYTHONPATH=. pytest $(TEST_API_DIR) \
+	  --cov=$(BACKEND_DIR) \
 	  --cov-branch \
 	  --cov-report=xml:coverage.xml
-# ============================
-# 4. 单元/集成/E2E 测试
-#    说明：运行 Pytest 并生成 Allure 报告数据
-# ============================
-test:
-	@echo ">>> Running Tests with coverage..."
-	export PYTHONPATH=$$PYTHONPATH:. && \
-	pytest $(TEST_DIR) \
-	  --alluredir=$(REPORT_DIR) \
 
+# ----------------------------
+# E2E(UI) tests (Allure)
+# NOTE:
+#   - 只跑 autotest_framework/test_cases
+#   - 这里不产覆盖率（覆盖率由 unit-test 负责）
+# ----------------------------
+e2e-test:
+	@echo ">>> [e2e-test] pytest UI tests + allure-results"
+	PYTHONPATH=. pytest $(TEST_E2E_DIR) \
+	  --alluredir=$(REPORT_DIR)
 
-# ============================
-# 5. API 合同测试
-# ============================
+# ----------------------------
+# Start/Stop services
+# - 解决你之前端口占用：每次启动前先 kill
+# - 解决 curl 卡住：强制 --noproxy '*'
+# ----------------------------
+start-backend:
+	@echo ">>> [start-backend] kill old uvicorn (best effort)"
+	- pkill -f "uvicorn.*$(BACKEND_APP)" || true
+	- pkill -f "uvicorn.*backend\.main:app" || true
+	@echo ">>> [start-backend] start uvicorn on :$(BACKEND_PORT)"
+	SQLALCHEMY_DATABASE_URL="$(SQLALCHEMY_DATABASE_URL)" \
+	PYTHONPATH=. nohup uvicorn $(BACKEND_APP) \
+	  --host $(BACKEND_HOST) --port $(BACKEND_PORT) > $(BACKEND_DIR)/backend.log 2>&1 &
+
+start-frontend:
+	@echo ">>> [start-frontend] kill old npm dev (best effort)"
+	- pkill -f "npm.*dev" || true
+	@echo ">>> [start-frontend] start npm dev on :$(FRONTEND_PORT)"
+	cd $(FRONTEND_DIR) && nohup npm run dev -- --host $(FRONTEND_HOST) --port $(FRONTEND_PORT) > frontend.log 2>&1 &
+
+wait-backend:
+	@echo ">>> [wait-backend] waiting backend $(BASE_URL)/novels/ ..."
+	@i=0; \
+	while [ $$i -lt 60 ]; do \
+	  if curl -fsS --noproxy '*' "$(BASE_URL)/novels/" > /dev/null; then \
+	    echo "✅ backend ready"; exit 0; \
+	  fi; \
+	  i=$$((i+1)); sleep 1; \
+	done; \
+	echo "❌ backend not ready in time"; \
+	echo "----- backend log -----"; tail -n 120 $(BACKEND_DIR)/backend.log || true; \
+	exit 1
+
+wait-frontend:
+	@echo ">>> [wait-frontend] waiting frontend http://127.0.0.1:$(FRONTEND_PORT)/ ..."
+	@i=0; \
+	while [ $$i -lt 60 ]; do \
+	  if curl -fsS --noproxy '*' "http://127.0.0.1:$(FRONTEND_PORT)/" > /dev/null; then \
+	    echo "✅ frontend ready"; exit 0; \
+	  fi; \
+	  i=$$((i+1)); sleep 1; \
+	done; \
+	echo "❌ frontend not ready in time"; \
+	echo "----- frontend log -----"; tail -n 120 $(FRONTEND_DIR)/frontend.log || true; \
+	exit 1
+
+start-deps: start-backend start-frontend wait-backend wait-frontend
+	@echo "✅ all services ready"
+
+stop-deps:
+	@echo ">>> [stop-deps] stopping services (best effort)"
+	- pkill -f "uvicorn.*$(BACKEND_APP)" || true
+	- pkill -f "uvicorn.*backend\.main:app" || true
+	- pkill -f "npm.*dev" || true
+	@echo "✅ stop done"
+
+# ----------------------------
+# Contract tests (Schemathesis)
+# - fuzzing only (stateful 容易被“删除后仍可读”等业务语义打爆)
+# - 如需 seed：确保 scripts/seed_novels.py 可运行
+# ----------------------------
 contract-test:
-	@echo ">>> Running Schemathesis contract tests (FAST mode)..."
-	python scripts/seed_novels.py
+	@echo ">>> [contract-test] seed + schemathesis fuzzing"
+	PYTHONPATH=. python scripts/seed_novels.py
 	schemathesis run $(OPENAPI_SPEC) \
 	  --url=$(BASE_URL) \
-	  --phases=fuzzing\
+	  --phases=fuzzing \
 	  --checks=all \
 	  --exclude-checks=positive_data_acceptance \
-	  --max-examples=10 \
-	  --request-timeout=5.0 \
-	  --max-response-time=4.0
+	  --max-examples=$(SCHEM_MAX_EXAMPLES) \
+	  --request-timeout=$(SCHEM_TIMEOUT) \
+	  --max-response-time=$(SCHEM_MAX_RT)
 
-# ============================
-# 6. 构建（包 / 镜像 / 前端产物）
-#    说明：当前流程跳过构建步骤
-# ============================
+# ----------------------------
+# Docker build
+# ----------------------------
 build:
-	@echo ">>> Building backend Docker image $(IMAGE_NAME):$(IMAGE_TAG)..."
-	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) -f backend/Dockerfile backend
+	@echo ">>> [build] docker build $(IMAGE_NAME):$(IMAGE_TAG)"
+	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) -f $(BACKEND_DIR)/Dockerfile $(BACKEND_DIR)
 
-# ============================
-# 7. 本地一键 CI（开发自测）
-#    说明：依次执行 依赖安装 -> 启动服务 -> 测试
-# ============================
-ci: deps start-deps test
+# ----------------------------
+# Local CI shortcut
+# ----------------------------
+ci: deps lint unit-test start-deps e2e-test contract-test stop-deps
 
-# ============================
-# 8. 帮助
-# ============================
 help:
-	@echo "可用目标："
-	@echo "  make deps           安装前后端依赖"
-	@echo "  make start-deps     启动后端和前端，并等待一段时间"
-	@echo "  make stop-deps      停止依赖（当前只是占位）"
-	@echo "  make lint           静态检查（当前跳过）"
-	@echo "  make test           运行 E2E 测试并生成 Allure 结果"
-	@echo "  make contract-test  API 合同测试（当前跳过）"
-	@echo "  make build          构建产物（当前跳过）"
-	@echo "  make ci             一键执行 CI 流程 (deps + start-deps + test)"
+	@echo ""
+	@echo "Targets:"
+	@echo "  make deps              安装后端+前端依赖 + playwright"
+	@echo "  make lint              ruff + black + mypy"
+	@echo "  make unit-test         后端 API/单元测试 + coverage.xml (Codecov)"
+	@echo "  make start-deps        启动后端+前端，并等待可用"
+	@echo "  make e2e-test          UI E2E 测试 + allure-results"
+	@echo "  make contract-test     Schemathesis 合同测试（fuzzing only）"
+	@echo "  make stop-deps         停止后端+前端（best effort）"
+	@echo "  make ci                本地一键跑全套"
+	@echo ""
