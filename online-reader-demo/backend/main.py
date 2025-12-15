@@ -1,28 +1,16 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Query, Path
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from pydantic import BaseModel  # 新增导入
-from typing import List  # 新增导入
+from pydantic import BaseModel
+from typing import List
+
 from .models import Base, engine, SessionLocal, Novel
 
+# SQLite 能支持的最大有符号整数（理论上可以不限制到这么大，你也可以自己降到 2**31-1）
 MAX_SQLITE_INT = 9223372036854775807  # 2**63 - 1
+
 # 初始化数据库
 Base.metadata.create_all(bind=engine)
-
-
-def _validate_novel_id(novel_id: int) -> int:
-    """在访问数据库前，先校验 novel_id 的取值范围。
-
-    - 要求：1 <= novel_id <= MAX_SQLITE_INT
-    - 超出范围则直接返回 422，而不是让 DB 自己炸 500
-    """
-    if not (1 <= novel_id <= MAX_SQLITE_INT):
-        raise HTTPException(
-            status_code=422,
-            detail="novel_id out of supported range",
-        )
-    return novel_id
-
 
 app = FastAPI()
 
@@ -36,7 +24,9 @@ app.add_middleware(
 )
 
 
-# --- 新增：定义返回给前端的数据模型 (Pydantic) ---
+# --- Pydantic 模型：对外返回结构 ---
+
+
 class NovelSchema(BaseModel):
     id: int
     title: str
@@ -45,8 +35,20 @@ class NovelSchema(BaseModel):
         from_attributes = True  # 兼容 SQLAlchemy 对象
 
 
+class NovelDetailSchema(BaseModel):
+    id: int
+    title: str
+    content: str
+
+    class Config:
+        from_attributes = True
+
+
 class DeleteResponseSchema(BaseModel):
     detail: str
+
+
+# --- DB Session 依赖 ---
 
 
 def get_db():
@@ -57,11 +59,18 @@ def get_db():
         db.close()
 
 
+# --- 接口实现 ---
+
+
 @app.post("/upload/")
-async def upload_novel(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_novel(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
     content = await file.read()
 
     # 宽松版：尽量不抛 400，只是按顺序尝试多种编码
+    text_content = None
     for encoding in ("utf-8", "gbk", "latin-1"):
         try:
             text_content = content.decode(encoding)
@@ -80,7 +89,6 @@ async def upload_novel(file: UploadFile = File(...), db: Session = Depends(get_d
     return {"id": novel.id, "title": novel.title}
 
 
-# --- 修复：使用 response_model 自动处理 JSON 序列化 ---
 @app.get("/novels/", response_model=List[NovelSchema])
 def read_novels(
     skip: int = Query(0, ge=0, le=100000),
@@ -91,23 +99,17 @@ def read_novels(
     return novels
 
 
-class NovelDetailSchema(BaseModel):
-    id: int
-    title: str
-    content: str
-
-    class Config:
-        from_attributes = True
-
-
 @app.get("/novels/{novel_id}", response_model=NovelDetailSchema)
 def get_novel(
-    novel_id: int = Path(..., description="Novel ID (positive integer)"),
+    novel_id: int = Path(
+        ...,
+        description="Novel ID (positive integer within supported range)",
+        ge=1,
+        le=MAX_SQLITE_INT,
+    ),
     db: Session = Depends(get_db),
 ):
-    # 先做范围校验，防止超大整数打爆 SQLite
-    _validate_novel_id(novel_id)
-
+    # 这里不再自己做 422 校验，交给 FastAPI 的 Path 约束生成 HTTPValidationError
     novel = db.query(Novel).filter(Novel.id == novel_id).first()
     if not novel:
         raise HTTPException(status_code=404, detail="Novel not found")
@@ -116,11 +118,15 @@ def get_novel(
 
 @app.delete("/novels/{novel_id}", response_model=DeleteResponseSchema)
 def delete_novel(
-    novel_id: int = Path(..., description="Novel ID (positive integer)"),
+    novel_id: int = Path(
+        ...,
+        description="Novel ID (positive integer within supported range)",
+        ge=1,
+        le=MAX_SQLITE_INT,
+    ),
     db: Session = Depends(get_db),
 ):
-    _validate_novel_id(novel_id)
-
+    # 同样参数范围校验交给 Path
     novel = db.query(Novel).filter(Novel.id == novel_id).first()
     if not novel:
         raise HTTPException(status_code=404, detail="Novel not found")
@@ -132,6 +138,6 @@ def delete_novel(
 if __name__ == "__main__":
     import uvicorn
 
-    # 第一个参数是字符串格式的 "文件名:实例名"
-    # reload=True 表示代码修改后自动重启 (开发模式)
+    # 本地开发手动跑：
+    #   cd backend && python main.py
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
