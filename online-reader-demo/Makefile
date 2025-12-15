@@ -71,15 +71,15 @@ lint:
 	@echo ">>> Running black (check mode)..."
 	black --check backend
 	@echo ">>> Running mypy..."
-	mypy backend
+	mypy --config-file mypy.ini backend
 # === 覆盖率用的后端单元 / API 测试 ===
 unit-test:
 	@echo ">>> Running backend unit/API tests with coverage..."
-	cd backend && \
-	  pytest tests \
-	    --cov=backend \
-	    --cov-branch \
-	    --cov-report=xml:../coverage.xml
+	export PYTHONPATH=$$PYTHONPATH:. && \
+	pytest backend/tests \
+	  --cov=backend \
+	  --cov-branch \
+	  --cov-report=xml:coverage.xml
 # ============================
 # 4. 单元/集成/E2E 测试
 #    说明：运行 Pytest 并生成 Allure 报告数据

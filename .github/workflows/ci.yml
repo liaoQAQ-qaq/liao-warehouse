@@ -115,7 +115,8 @@ jobs:
       - name: Start backend & frontend (make start-deps)
         run: make start-deps
       # 1) 覆盖率：后端 unit-test
-      - name: Run backend unit/API tests with coverage
+      - name: Run Unit/API tests (coverage.xml)
+        if: ${{ needs.precheck.outputs.enable_coverage == 'true' }}
         run: make unit-test
 
       # 2) E2E，用于功能验证（不计覆盖率）
@@ -156,7 +157,7 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}   # 需要在仓库 Secrets 里配置
           files: online-reader-demo/coverage.xml
-          flags: e2e
+          flags: unit
           fail_ci_if_error: false
 
   # 4) API 合同测试（Schemathesis，单独 job，可选）
