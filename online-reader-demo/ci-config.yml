@@ -1,13 +1,30 @@
-# online-reader-demo/ci-config.yml
+# ===== switches =====
+enable_lint: true
+enable_unit_test: true
+enable_e2e_test: true
+enable_contract_test: true
 
-language: python
-has_api: true
+enable_coverage: true
+enable_codecov: true
+enable_sonarcloud: true
 
-# 开关控制
-enable_lint: true          # 开启静态代码检查
-enable_unit_test: true      # 开启核心测试
-enable_contract_test: true  # 开启API 合同测试
-openapi_path: api-specs/openapi.yaml 
-enable_build: false         # 暂时不构建产物
-enable_coverage: true      # 暂时不看覆盖率
-enable_docker_build: false  # 暂时不构建 Docker 镜像
+enable_docker: true
+enable_k8s_deploy: false   # 没配集群前先关掉
+
+# ===== runtime =====
+python_version: "3.10"
+node_version: "20"
+
+# ===== sonarcloud =====
+sonar_organization: "YOUR_ORG"
+sonar_project_key: "YOUR_PROJECT_KEY"
+
+# ===== docker (GHCR default) =====
+docker_registry: "ghcr.io"
+docker_backend_image: "ghcr.io/${OWNER}/online-reader-backend"
+docker_frontend_image: "ghcr.io/${OWNER}/online-reader-frontend"
+
+# ===== k8s =====
+k8s_namespace: "online-reader"
+k8s_backend_deploy: "online-reader-backend"
+k8s_frontend_deploy: "online-reader-frontend"

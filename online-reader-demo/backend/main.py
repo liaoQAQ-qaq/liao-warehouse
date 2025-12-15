@@ -3,7 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel  # 新增导入
 from typing import List  # 新增导入
-from backend.models import Base, engine, SessionLocal, Novel
+from .models import Base, engine, SessionLocal, Novel
+
 
 
 # 初始化数据库
