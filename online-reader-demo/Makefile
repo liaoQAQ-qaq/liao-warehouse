@@ -46,14 +46,17 @@ deps:
 # ============================
 start-deps:
 	@echo ">>> Starting backend & frontend services..."
-	- pkill -f "uvicorn main:app" || true
+	- pkill -f "uvicorn backend.main:app" || true
+	- pkill -f "npm run dev" || true
+
 	@echo ">>> Starting backend (uvicorn on port $(BACKEND_PORT))..."
-	cd $(BACKEND_DIR) && \
-	  SQLALCHEMY_DATABASE_URL="$(SQLALCHEMY_DATABASE_URL)" \
-	  nohup uvicorn main:app --host 0.0.0.0 --port $(BACKEND_PORT) > backend.log 2>&1 &
+	SQLALCHEMY_DATABASE_URL="$(SQLALCHEMY_DATABASE_URL)" \
+	  nohup uvicorn backend.main:app --host 0.0.0.0 --port $(BACKEND_PORT) > backend/backend.log 2>&1 &
+
 	@echo ">>> Starting frontend (npm dev on port $(FRONTEND_PORT))..."
 	cd $(FRONTEND_DIR) && \
-	  nohup npm run dev -- --port $(FRONTEND_PORT) --host 0.0.0.0 > frontend.log 2>&1 &
+	  nohup npm run dev -- --port $(FRONTEND_PORT) --host 0.0.0.0 > ../frontend/frontend.log 2>&1 &
+
 	@echo ">>> Sleeping 30 seconds for services to start..."
 	sleep 30
 	@echo "✅ All services are assumed up."
@@ -71,12 +74,11 @@ lint:
 	@echo ">>> Running black (check mode)..."
 	black --check backend
 	@echo ">>> Running mypy..."
-	mypy --config-file mypy.ini backend
+	mypy --explicit-package-bases backend
 # === 覆盖率用的后端单元 / API 测试 ===
 unit-test:
 	@echo ">>> Running backend unit/API tests with coverage..."
-	export PYTHONPATH=$$PYTHONPATH:. && \
-	pytest backend/tests \
+	PYTHONPATH=. pytest backend/tests \
 	  --cov=backend \
 	  --cov-branch \
 	  --cov-report=xml:coverage.xml
