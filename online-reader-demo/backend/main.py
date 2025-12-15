@@ -42,7 +42,9 @@ class NovelSchema(BaseModel):
     class Config:
         from_attributes = True  # 兼容 SQLAlchemy 对象
 
-
+class DeleteResponseSchema(BaseModel):
+    detail: str
+    
 def get_db():
     db = SessionLocal()
     try:
