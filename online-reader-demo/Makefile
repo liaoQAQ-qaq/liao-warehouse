@@ -57,9 +57,10 @@ start-deps:
 	cd $(FRONTEND_DIR) && \
 	  nohup npm run dev -- --port $(FRONTEND_PORT) --host 0.0.0.0 > ../frontend/frontend.log 2>&1 &
 
-	@echo ">>> Sleeping 30 seconds for services to start..."
-	sleep 30
-	@echo "✅ All services are assumed up."
+	@echo ">>> ⏳ Waiting for services to be ready (instead of sleep)..."
+	# 使用 npx wait-on 等待 TCP 端口响应，超时设置为 60秒
+	npx wait-on tcp:$(BACKEND_PORT) tcp:$(FRONTEND_PORT) --timeout 60000
+	@echo "✅ All services are up and running!"
 
 stop-deps:
 	@echo ">>> stop-deps is currently a no-op. Services will exit with CI job."
