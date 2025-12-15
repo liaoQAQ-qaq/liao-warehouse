@@ -94,10 +94,13 @@ mypy:
 # ----------------------------
 unit-test:
 	@echo ">>> [unit-test] pytest backend/tests + coverage.xml"
+	rm -f coverage.xml
 	PYTHONPATH=. pytest $(TEST_API_DIR) \
 	  --cov=$(BACKEND_DIR) \
 	  --cov-branch \
-	  --cov-report=xml:coverage.xml
+	  --cov-report=xml:coverage.xml \
+	  -q
+
 
 # ----------------------------
 # E2E(UI) tests (Allure)
@@ -107,8 +110,11 @@ unit-test:
 # ----------------------------
 e2e-test:
 	@echo ">>> [e2e-test] pytest UI tests + allure-results"
+	rm -rf $(REPORT_DIR)
+	mkdir -p $(REPORT_DIR)
 	PYTHONPATH=. pytest $(TEST_E2E_DIR) \
 	  --alluredir=$(REPORT_DIR)
+
 
 # ----------------------------
 # Start/Stop services
