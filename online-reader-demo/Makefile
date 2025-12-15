@@ -78,7 +78,9 @@ lint:
 # === 覆盖率用的后端单元 / API 测试 ===
 unit-test:
 	@echo ">>> Running backend unit/API tests with coverage..."
+	# 使用 --ignore 跳过在这个目录下的 E2E 文件，只跑 API 测试
 	PYTHONPATH=. pytest backend/tests \
+	  --ignore=backend/tests/test_e2e.py \
 	  --cov=backend \
 	  --cov-branch \
 	  --cov-report=xml:coverage.xml
