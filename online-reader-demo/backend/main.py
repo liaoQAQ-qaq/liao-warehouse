@@ -6,7 +6,6 @@ from typing import List  # 新增导入
 from .models import Base, engine, SessionLocal, Novel
 
 
-
 # 初始化数据库
 Base.metadata.create_all(bind=engine)
 
