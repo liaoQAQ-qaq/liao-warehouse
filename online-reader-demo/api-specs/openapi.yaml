@@ -1,4 +1,4 @@
-openapi: 3.1.0
+openapi: 3.0.3
 info:
   title: Online Reader API
   version: 1.0.0
@@ -16,15 +16,12 @@ paths:
           multipart/form-data:
             schema:
               type: object
+              required:
+                - file
               properties:
                 file:
                   type: string
                   format: binary
-                  description: >
-                    Text novel file uploaded via multipart/form-data.
-                    Content will be decoded as UTF-8 or GBK.
-              required:
-                - file
       responses:
         "200":
           description: Novel uploaded successfully
@@ -32,18 +29,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/NovelListItem"
-          # ✅ 关键：告诉 Schemathesis 如何从返回值中的 id 继续调用其他接口
-          links:
-            GetUploadedNovel:
-              operationId: getNovel
-              parameters:
-                novel_id: "$response.body#/id"
-            DeleteUploadedNovel:
-              operationId: deleteNovel
-              parameters:
-                novel_id: "$response.body#/id"
         "400":
-          description: Unsupported encoding or empty file
+          description: Unsupported encoding
           content:
             application/json:
               schema:
@@ -54,6 +41,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HTTPValidationError"
+        "500":
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /novels/:
     get:
@@ -74,6 +67,7 @@ paths:
             type: integer
             minimum: 1
             maximum: 100
+            default: 10
       responses:
         "200":
           description: List of novels
@@ -89,85 +83,105 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HTTPValidationError"
+        "500":
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /novels/{novel_id}:
-  get:
-    summary: Get novel by ID
-    operationId: getNovel
-    parameters:
-      - in: path
-        name: novel_id
-        required: true
-        schema:
-          type: integer
-          minimum: 1
-          maximum: 9223372036854775807
-    responses:
-      "200":
-        description: Novel detail
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/NovelDetail"
-      "404":
-        description: Novel not found
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Error"
-      "422":
-        description: Validation error
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/HTTPValidationError"
+    get:
+      summary: Get novel by ID
+      operationId: getNovel
+      parameters:
+        - in: path
+          name: novel_id
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Novel detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NovelDetail"
+        "404":
+          description: Novel not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+        "500":
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
-  delete:
-    summary: Delete novel by ID
-    operationId: deleteNovel
-    parameters:
-      - in: path
-        name: novel_id
-        required: true
-        schema:
-          type: integer
-          minimum: 1
-          maximum: 9223372036854775807
-    responses:
-      "200":
-        description: Deleted successfully
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/DeleteResponse"
-      "404":
-        description: Novel not found
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Error"
-      "422":
-        description: Validation error (invalid novel_id path parameter)
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/HTTPValidationError"
+    delete:
+      summary: Delete novel by ID
+      operationId: deleteNovel
+      parameters:
+        - in: path
+          name: novel_id
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResponse"
+        "404":
+          description: Novel not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+        "500":
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
 components:
   schemas:
     NovelListItem:
       type: object
+      required:
+        - id
+        - title
       properties:
         id:
           type: integer
         title:
           type: string
-      required:
-        - id
-        - title
 
     NovelDetail:
       type: object
+      required:
+        - id
+        - title
+        - content
       properties:
         id:
           type: integer
@@ -175,34 +189,36 @@ components:
           type: string
         content:
           type: string
-      required:
-        - id
-        - title
-        - content
 
     DeleteResponse:
       type: object
+      required:
+        - detail
       properties:
         detail:
           type: string
-      required:
-        - detail
 
     Error:
       type: object
+      required:
+        - detail
       properties:
         detail:
           type: string
-      required:
-        - detail
 
     HTTPValidationError:
       type: object
+      required:
+        - detail
       properties:
         detail:
           type: array
           items:
             type: object
+            required:
+              - loc
+              - msg
+              - type
             properties:
               loc:
                 type: array
@@ -214,7 +230,3 @@ components:
                 type: string
               type:
                 type: string
-            required:
-              - loc
-              - msg
-              - type
