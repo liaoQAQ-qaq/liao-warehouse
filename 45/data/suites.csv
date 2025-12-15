@@ -1,0 +1,2 @@
+"DESCRIPTION","DURATION IN MS","NAME","PARENT SUITE","START TIME","STATUS","STOP TIME","SUB SUITE","SUITE","TEST CLASS","TEST METHOD"
+"","1013","测试通过 UI 上传小说，再用 API 校验创建与删除","test_cases","Mon Dec 15 08:23:44 UTC 2025","passed","Mon Dec 15 08:23:45 UTC 2025","TestNovelManagement","test_novel_flow","",""
