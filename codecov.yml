@@ -1,0 +1,22 @@
+codecov:
+  require_ci_to_pass: yes
+
+coverage:
+  precision: 2
+  round: down
+  range: "60...90"   # 颜色渐变区间
+
+  status:
+    project:
+      default:
+        target: 70      # 整体覆盖率目标 >= 70%
+        threshold: 5    # 允许波动 5%
+    patch:
+      default:
+        target: 70      # 每个 PR 新增代码的覆盖率目标
+
+ignore:
+  - "frontend/*"
+  - "autotest_framework/*"
+  - "scripts/*"
+  - "backend/tests/*"

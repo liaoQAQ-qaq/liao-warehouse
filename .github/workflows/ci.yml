@@ -114,8 +114,12 @@ jobs:
 
       - name: Start backend & frontend (make start-deps)
         run: make start-deps
+      # 1) 覆盖率：后端 unit-test
+      - name: Run backend unit/API tests with coverage
+        run: make unit-test
 
-      - name: Run E2E tests with coverage (make test)
+      # 2) E2E，用于功能验证（不计覆盖率）
+      - name: Run E2E tests
         run: make test
 
       # 失败时打印日志兜底
