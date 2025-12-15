@@ -1,1 +1,0 @@
-[{"uid":"d728203002605cc7","name":"test_upload_and_read_flow","time":{"start":1765770799792,"stop":1765770805068,"duration":5276},"status":"failed","severity":"normal"},{"uid":"649072cef33950cf","name":"测试上传一本小说并成功显示","time":{"start":1765770805214,"stop":1765770807421,"duration":2207},"status":"passed","severity":"normal"}]
