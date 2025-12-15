@@ -9,6 +9,7 @@ MAX_SQLITE_INT = 9223372036854775807  # 2**63 - 1
 # 初始化数据库
 Base.metadata.create_all(bind=engine)
 
+
 def _validate_novel_id(novel_id: int) -> int:
     """在访问数据库前，先校验 novel_id 的取值范围。
 
@@ -21,6 +22,7 @@ def _validate_novel_id(novel_id: int) -> int:
             detail="novel_id out of supported range",
         )
     return novel_id
+
 
 app = FastAPI()
 
@@ -42,9 +44,11 @@ class NovelSchema(BaseModel):
     class Config:
         from_attributes = True  # 兼容 SQLAlchemy 对象
 
+
 class DeleteResponseSchema(BaseModel):
     detail: str
-    
+
+
 def get_db():
     db = SessionLocal()
     try:
