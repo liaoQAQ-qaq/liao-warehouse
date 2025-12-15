@@ -1,13 +1,26 @@
-from fastapi import FastAPI, Query, Depends, UploadFile, File, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Query, Path
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel  # 新增导入
 from typing import List  # 新增导入
 from .models import Base, engine, SessionLocal, Novel
 
-
+MAX_SQLITE_INT = 9223372036854775807  # 2**63 - 1
 # 初始化数据库
 Base.metadata.create_all(bind=engine)
+
+def _validate_novel_id(novel_id: int) -> int:
+    """在访问数据库前，先校验 novel_id 的取值范围。
+
+    - 要求：1 <= novel_id <= MAX_SQLITE_INT
+    - 超出范围则直接返回 422，而不是让 DB 自己炸 500
+    """
+    if not (1 <= novel_id <= MAX_SQLITE_INT):
+        raise HTTPException(
+            status_code=422,
+            detail="novel_id out of supported range",
+        )
+    return novel_id
 
 app = FastAPI()
 
@@ -82,19 +95,29 @@ class NovelDetailSchema(BaseModel):
 
 
 @app.get("/novels/{novel_id}", response_model=NovelDetailSchema)
-def read_novel(novel_id: int, db: Session = Depends(get_db)):
+def get_novel(
+    novel_id: int = Path(..., description="Novel ID (positive integer)"),
+    db: Session = Depends(get_db),
+):
+    # 先做范围校验，防止超大整数打爆 SQLite
+    _validate_novel_id(novel_id)
+
     novel = db.query(Novel).filter(Novel.id == novel_id).first()
-    if novel is None:
+    if not novel:
         raise HTTPException(status_code=404, detail="Novel not found")
     return novel
 
 
-@app.delete("/novels/{novel_id}")
-def delete_novel(novel_id: int, db: Session = Depends(get_db)):
-    novel = db.query(Novel).filter(Novel.id == novel_id).first()
-    if novel is None:
-        raise HTTPException(status_code=404, detail="Novel not found")
+@app.delete("/novels/{novel_id}", response_model=DeleteResponseSchema)
+def delete_novel(
+    novel_id: int = Path(..., description="Novel ID (positive integer)"),
+    db: Session = Depends(get_db),
+):
+    _validate_novel_id(novel_id)
 
+    novel = db.query(Novel).filter(Novel.id == novel_id).first()
+    if not novel:
+        raise HTTPException(status_code=404, detail="Novel not found")
     db.delete(novel)
     db.commit()
     return {"detail": "Deleted successfully"}

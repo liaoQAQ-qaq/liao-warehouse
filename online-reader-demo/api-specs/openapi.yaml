@@ -91,65 +91,67 @@ paths:
                 $ref: "#/components/schemas/HTTPValidationError"
 
   /novels/{novel_id}:
-    get:
-      summary: Get novel by ID
-      operationId: getNovel
-      parameters:
-        - in: path
-          name: novel_id
-          required: true
-          schema:
-            type: integer
-            minimum: 1
-      responses:
-        "200":
-          description: Novel detail
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/NovelDetail"
-        "404":
-          description: Novel not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "422":
-          description: Validation error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+  get:
+    summary: Get novel by ID
+    operationId: getNovel
+    parameters:
+      - in: path
+        name: novel_id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 9223372036854775807
+    responses:
+      "200":
+        description: Novel detail
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NovelDetail"
+      "404":
+        description: Novel not found
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Error"
+      "422":
+        description: Validation error
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HTTPValidationError"
 
-    delete:
-      summary: Delete novel by ID
-      operationId: deleteNovel
-      parameters:
-        - in: path
-          name: novel_id
-          required: true
-          schema:
-            type: integer
-            minimum: 1
-      responses:
-        "200":
-          description: Deleted successfully
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DeleteResponse"
-        "404":
-          description: Novel not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "422":
-          description: Validation error (invalid novel_id path parameter)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+  delete:
+    summary: Delete novel by ID
+    operationId: deleteNovel
+    parameters:
+      - in: path
+        name: novel_id
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 9223372036854775807
+    responses:
+      "200":
+        description: Deleted successfully
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteResponse"
+      "404":
+        description: Novel not found
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Error"
+      "422":
+        description: Validation error (invalid novel_id path parameter)
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HTTPValidationError"
 
 components:
   schemas:
