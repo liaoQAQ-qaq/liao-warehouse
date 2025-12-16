@@ -241,7 +241,7 @@ jobs:
 
     steps:
       - name: Deploy to remote server via SSH
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@<commit-sha>
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
