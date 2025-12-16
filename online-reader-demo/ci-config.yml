@@ -10,7 +10,7 @@ enable_sonarcloud: true
 
 enable_docker: true
 enable_k8s_deploy: true   # 没配集群前先关掉
-
+enable_deploy: true
 # ===== runtime =====
 python_version: "3.10"
 node_version: "20"
