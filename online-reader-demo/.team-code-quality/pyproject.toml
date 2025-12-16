@@ -1,0 +1,23 @@
+[project]
+name = "team-code-quality"
+version = "2.0.0"
+description = "Team Code Quality Tools - Fixed Versions"
+authors = [{name = "Team", email = "team@example.com"}]
+requires-python = ">=3.11"
+
+[dependency-groups]
+dev = [
+    # Python 代码质量工具 - 固定版本
+    "black==24.10.0",
+    "isort==5.13.2",
+    "flake8==7.1.1",
+    "mypy==1.13.0",
+    "pytest==8.3.3",
+    "pytest-cov==6.0.0",
+    "pytest-asyncio==0.24.0",
+    "httpx==0.28.1",
+    "bandit==1.7.10",
+    "pip-audit==2.7.3",
+    "pylint==3.3.2",
+    "pre-commit>=4.4.0",
+]

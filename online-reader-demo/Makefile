@@ -68,11 +68,17 @@ stop-deps:
 # ----------------------------
 # Lint
 # ----------------------------
-lint:
-	@echo ">>> [lint] ruff/black/mypy"
+# 快速本地 Lint（保留原有 ruff/black/mypy 流程）
+lint-fast:
+	@echo ">>> [lint-fast] ruff/black/mypy"
 	ruff check $(BACKEND_DIR)
 	black --check $(BACKEND_DIR)
 	MYPYPATH=. mypy --explicit-package-bases $(BACKEND_DIR)
+
+# 统一团队 Lint，复用 .team-code-quality 工具包
+lint:
+	@echo ">>> [lint] .team-code-quality make check"
+	cd .team-code-quality && make check
 
 # ----------------------------
 # Unit/API tests + Coverage
@@ -123,7 +129,8 @@ ci: deps start-deps unit-test e2e-test
 
 help:
 	@echo "make deps          - install deps"
-	@echo "make lint          - ruff/black/mypy"
+	@echo "make lint          - .team-code-quality unified check"
+	@echo "make lint-fast     - ruff/black/mypy (local only)"
 	@echo "make start-deps    - start backend+frontend"
 	@echo "make unit-test     - backend tests + coverage.xml"
 	@echo "make e2e-test      - UI tests + allure-results"
