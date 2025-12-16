@@ -2,7 +2,7 @@
 import io
 import uuid
 from pathlib import Path
-
+import shutil
 from fastapi.testclient import TestClient
 
 from backend.main import MAX_SQLITE_INT, app
