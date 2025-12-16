@@ -1,6 +1,7 @@
 # backend/tests/test_api_basic.py
 import io
 import uuid
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
