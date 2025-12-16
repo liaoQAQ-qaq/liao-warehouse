@@ -235,21 +235,31 @@ jobs:
             ${{ env.IMAGE_REPO }}:${{ github.sha }}
 
   deploy:
-    needs: [precheck, docker]
+    needs: [precheck, test, contract-test, docker]
     if: ${{ needs.precheck.outputs.enable_deploy == 'true' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Deploy to remote server via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
 
-      - name: Setup kubectl
-        uses: azure/setup-kubectl@v4
+            cd /opt/online-reader-demo
 
-      - name: Configure kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBE_CONFIG_BASE64 }}" | base64 -d > ~/.kube/config
+            echo ">>> docker login ghcr.io"
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io \
+              -u "${{ secrets.GHCR_USER }}" --password-stdin
 
-      - name: Deploy manifests
-        run: |
-          kubectl apply -f k8s/
-          kubectl rollout status deploy/online-reader-backend -n default --timeout=120s
+            echo ">>> docker compose pull"
+            docker compose pull
+
+            echo ">>> docker compose up -d"
+            docker compose up -d
+
+            echo ">>> clean old images"
+            docker image prune -f
