@@ -15,6 +15,8 @@ permissions:
 env:
   PROJECT_DIR: online-reader-demo
   BACKEND_PORT: 8000
+  FRONTEND_PORT: 5173
+  DEPLOY_DIR: /opt/online-reader-demo-test   # <<< 你的服务器部署目录（按需改）
 
 jobs:
   precheck:
@@ -76,7 +78,6 @@ jobs:
       - name: Install uv (Python toolchain)
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
-          # 确保 uv 在 PATH 中
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
@@ -166,7 +167,7 @@ jobs:
           fail_ci_if_error: false
           verbose: true
 
-      # SonarCloud（你已配置好就打开开关）
+      # SonarCloud
       - name: SonarCloud Scan
         if: ${{ needs.precheck.outputs.enable_sonar == 'true' }}
         uses: SonarSource/sonarqube-scan-action@v6
@@ -191,7 +192,6 @@ jobs:
       - name: Install deps (backend only ok)
         run: make deps-backend
 
-      # ✅ 只启动 backend，避免你没装 node/npm 却 make start-deps
       - name: Start backend only (uvicorn)
         run: |
           pkill -f "uvicorn" || true
@@ -204,15 +204,16 @@ jobs:
 
   docker:
     needs: [precheck, test]
-    if: ${{ needs.precheck.outputs.enable_docker == 'true' && github.ref == 'refs/heads/main' }}
+    if: ${{ needs.precheck.outputs.enable_docker == 'true' && github.ref == 'refs/heads/main' && needs.test.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set image repo (lowercase)
+      - name: Set image repos (lowercase)
         run: |
           REPO_LC="$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
-          echo "IMAGE_REPO=ghcr.io/${REPO_LC}/online-reader-backend" >> $GITHUB_ENV
+          echo "IMAGE_REPO_BACKEND=ghcr.io/${REPO_LC}/online-reader-backend" >> $GITHUB_ENV
+          echo "IMAGE_REPO_FRONTEND=ghcr.io/${REPO_LC}/online-reader-frontend" >> $GITHUB_ENV
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -231,17 +232,28 @@ jobs:
           file: online-reader-demo/backend/Dockerfile
           push: true
           tags: |
-            ${{ env.IMAGE_REPO }}:latest
-            ${{ env.IMAGE_REPO }}:${{ github.sha }}
+            ${{ env.IMAGE_REPO_BACKEND }}:latest
+            ${{ env.IMAGE_REPO_BACKEND }}:${{ github.sha }}
+
+      - name: Build & Push (frontend)
+        uses: docker/build-push-action@v6
+        with:
+          context: online-reader-demo/frontend
+          file: online-reader-demo/frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_REPO_FRONTEND }}:latest
+            ${{ env.IMAGE_REPO_FRONTEND }}:${{ github.sha }}
 
   deploy:
     needs: [precheck, test, contract-test, docker]
-    if: ${{ needs.precheck.outputs.enable_deploy == 'true' && github.ref == 'refs/heads/main' }}
+    if: ${{ always() && needs.precheck.outputs.enable_deploy == 'true' && github.ref == 'refs/heads/main' && needs.test.result == 'success' && needs.docker.result == 'success' && (needs.contract-test.result == 'success' || needs.contract-test.result == 'skipped') }}
     runs-on: ubuntu-latest
 
     steps:
       - name: Deploy to remote server via SSH
-        uses: appleboy/ssh-action@<commit-sha>
+        # 固定到 appleboy/ssh-action 的完整 commit SHA（v1.2.4 对应）
+        uses: appleboy/ssh-action@823bd89e131d8d508129f9443cad5855e9ba96f0
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
@@ -249,7 +261,7 @@ jobs:
           script: |
             set -e
 
-            cd /opt/online-reader-demo
+            cd "${{ env.DEPLOY_DIR }}"
 
             echo ">>> docker login ghcr.io"
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io \
@@ -258,8 +270,8 @@ jobs:
             echo ">>> docker compose pull"
             docker compose pull
 
-            echo ">>> docker compose up -d"
-            docker compose up -d
+            echo ">>> docker compose up -d --remove-orphans"
+            docker compose up -d --remove-orphans
 
             echo ">>> clean old images"
             docker image prune -f
