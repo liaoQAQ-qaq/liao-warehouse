@@ -1,0 +1,175 @@
+# Git Workflow Configuration
+# 团队Git工作流规范配置文件
+
+# 分支命名规范
+branch_naming:
+  # 主分支
+  main_branches:
+    - main
+    - master
+
+  # 功能分支前缀
+  feature_prefixes:
+    - feature/
+    - feat/
+
+  # Bug修复分支前缀
+  bugfix_prefixes:
+    - bugfix/
+    - fix/
+
+  # 紧急修复分支前缀
+  hotfix_prefixes:
+    - hotfix/
+
+  # 发布分支前缀
+  release_prefixes:
+    - release/
+
+# 提交信息规范
+commit_message:
+  # 必需的类型
+  required_types:
+    - feat
+    - fix
+    - docs
+    - style
+    - refactor
+    - test
+    - chore
+
+  # 可选的类型
+  optional_types:
+    - perf
+    - ci
+    - build
+    - revert
+
+  # 类型描述
+  type_descriptions:
+    feat: "新功能"
+    fix: "Bug修复"
+    docs: "文档更新"
+    style: "代码格式化"
+    refactor: "代码重构"
+    test: "测试相关"
+    chore: "构建过程或辅助工具的变动"
+    perf: "性能优化"
+    ci: "CI/CD相关"
+    build: "构建系统或依赖变更"
+    revert: "回滚之前的提交"
+
+# 分支保护规则
+branch_protection:
+  # 主分支保护
+  main_branches:
+    - main
+    - master
+
+  # 禁止直接推送
+  block_direct_push: true
+
+  # 要求PR审查
+  require_pr_review: true
+
+  # 要求CI检查通过
+  require_ci_checks: true
+
+  # 最少审查人数
+  min_reviewers: 1
+
+# 工作流检查点
+workflow_checks:
+  # 提交前检查
+  pre_commit:
+    # 代码质量检查
+    code_quality: true
+    # 测试检查
+    tests: true
+    # 安全检查
+    security: true
+    # 文档检查
+    docs: false
+
+  # 推送前检查
+  pre_push:
+    # 分支检查
+    branch_validation: true
+    # 测试检查
+    tests: true
+    # 无未提交更改
+    no_uncommitted_changes: true
+
+# 自动化清理
+auto_cleanup:
+  # 清理已合并的分支
+  cleanup_merged_branches: true
+
+  # 清理临时标签
+  cleanup_temp_tags: true
+
+  # 清理周期（天）
+  cleanup_interval: 7
+
+# 团队集成
+team_integration:
+  # Claude AI集成
+  claude_integration:
+    enabled: true
+    auto_review: true
+    comment_trigger: "@claude"
+
+  # GitHub集成
+  github_integration:
+    enabled: true
+    templates: true
+    protected_branches: true
+
+  # Slack/Teams通知
+  notifications:
+    enabled: false
+    pr_created: false
+    pr_merged: false
+    deployment: false
+
+# 质量指标
+quality_metrics:
+  # 提交信息质量
+  commit_quality:
+    min_length: 10
+    max_length: 100
+    require_scope: true
+    require_description: false
+
+  # 分支质量
+  branch_quality:
+    max_age_days: 30
+    max_inactive_days: 7
+
+  # PR质量
+  pr_quality:
+    min_description_length: 20
+    require_test_plan: true
+    require_checklist: true
+
+# 开发工具集成
+tool_integration:
+  # IDE集成
+  ide:
+    vscode:
+      enabled: true
+      extensions:
+        - "ms-vscode.vscode-git"
+        - "github.vscode-pull-request-github"
+        - "eamodio.gitlens"
+
+  # 编辑器配置
+  editor_config:
+    enabled: true
+    file: ".editorconfig"
+
+  # Git hooks
+  git_hooks:
+    pre_commit: true
+    pre_push: true
+    commit_msg: true

@@ -1,0 +1,31 @@
+[MASTER]
+# 禁用过于严格的检查
+# C0114: missing-module-docstring (模块文档字符串)
+# C0115: missing-class-docstring (类文档字符串)
+# C0116: missing-function-docstring (函数文档字符串)
+# R0903: too-few-public-methods (公共方法太少)
+# E1101: no-member (成员不存在，经常误报)
+# E0401: import-error (导入错误，检查时可能没有安装依赖)
+# R0801: duplicate-code (代码重复，允许一定程度的重复)
+# W1203: logging-fstring-interpolation (f-string 日志，现代 Python 可以接受)
+# W0611: unused-import (未使用的导入，由 flake8 检查)
+# W0612: unused-variable (未使用的变量，警告级别)
+# W0613: unused-argument (未使用的参数，某些情况下是必需的)
+# W0718: broad-exception-caught (捕获通用异常，某些情况下需要)
+# C0121: singleton-comparison (单例比较，== True 在某些情况下可接受)
+disable = C0114,C0115,C0116,R0903,E1101,E0401,R0801,W1203,W0611,W0612,W0613,W0718,C0121
+
+[FORMAT]
+max-line-length = 88
+
+[DESIGN]
+max-args = 10
+max-attributes = 15
+max-locals = 20
+max-branches = 20
+max-statements = 60
+
+[TYPECHECK]
+generated-members = objects,DoesNotExist,MultipleObjectsReturned
+# 忽略导入错误（检查时可能没有安装依赖）
+ignored-modules = sqlalchemy,fastapi,pydantic,starlette,alembic,asyncpg,psycopg2,passlib,bcrypt,jwt,email_validator,bleach

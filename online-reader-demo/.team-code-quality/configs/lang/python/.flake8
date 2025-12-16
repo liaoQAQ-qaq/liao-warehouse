@@ -1,0 +1,20 @@
+[flake8]
+max-line-length = 88
+# 忽略的规则说明：
+# E203: whitespace before ':' (与 black 冲突)
+# W503: line break before binary operator (与 black 冲突)
+# E501: line too long (允许，black 会自动处理)
+# F401: imported but unused (警告级别，不阻塞)
+# F841: local variable assigned but never used (警告级别)
+extend-ignore = E203,W503,E501
+exclude =
+    __pycache__,
+    .git,
+    .venv,
+    venv,
+    migrations,
+    alembic
+# 允许某些常见的非关键错误
+per-file-ignores =
+    __init__.py:F401,F403
+    tests/*:E501,F401,F811

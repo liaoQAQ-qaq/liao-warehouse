@@ -1,0 +1,81 @@
+<?xml version="1.0"?>
+<ruleset name="Team Rules"
+    xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0
+    http://pmd.sourceforge.net/ruleset_2_0_0.xsd">
+
+    <description>
+        团队 Java 代码质量规则
+    </description>
+
+    <!-- 基础规则 -->
+    <rule ref="category/java/bestpractices.xml">
+        <exclude name="JUnitTestsShouldIncludeAssert"/>
+        <exclude name="JUnitUseExpected"/>
+    </rule>
+
+    <!-- 代码风格 -->
+    <rule ref="category/java/codestyle.xml">
+        <exclude name="ShortVariable"/>
+        <exclude name="LongVariable"/>
+        <exclude name="OnlyOneReturn"/>
+    </rule>
+
+    <!-- 设计原则 -->
+    <rule ref="category/java/design.xml">
+        <exclude name="TooManyMethods"/>
+        <exclude name="CyclomaticComplexity"/>
+    </rule>
+
+    <!-- 错误预防 -->
+    <rule ref="category/java/errorprone.xml"/>
+
+    <!-- 性能优化 -->
+    <rule ref="category/java/performance.xml">
+        <exclude name="AvoidInstantiatingObjectsInLoops"/>
+    </rule>
+
+    <!-- 多线程 -->
+    <rule ref="category/java/multithreading.xml"/>
+
+    <!-- 自定义规则配置 -->
+    <rule name="MethodLength"
+          language="java"
+          message="Method {0} is too long. Consider refactoring."
+          class="net.sourceforge.pmd.lang.rule.XPathRule">
+        <description>
+            Methods should not be too long. Long methods are hard to read and maintain.
+        </description>
+        <priority>3</priority>
+        <properties>
+            <property name="xpath">
+                <value>
+                    //MethodDeclaration[
+                        @Image='private' and
+                        count(Block/BlockStatement) > 20
+                    ]
+                </value>
+            </property>
+        </properties>
+    </rule>
+
+    <rule name="ClassDataAbstractionCoupling"
+          language="java"
+          message="High coupling in class {0}. {1} different types are imported."
+          class="net.sourceforge.pmd.lang.rule.XPathRule">
+        <description>
+            Classes should have low coupling. Too many different imports indicate high coupling.
+        </description>
+        <priority>3</priority>
+        <properties>
+            <property name="xpath">
+                <value>
+                    //ClassOrInterfaceDeclaration[
+                        count(ImportDeclaration) > 15
+                    ]
+                </value>
+            </property>
+        </properties>
+    </rule>
+</ruleset>

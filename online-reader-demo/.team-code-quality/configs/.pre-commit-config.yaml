@@ -1,0 +1,140 @@
+# Multi-language Pre-commit hooks configuration
+# Usage: pre-commit install
+# Usage: pre-commit run --all-files
+
+repos:
+  # Pre-commit built-in hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        description: Removes trailing whitespace
+        exclude: '\.md$|node_modules/'
+      - id: end-of-file-fixer
+        description: Ensures that a file is either empty or ends with one newline
+        exclude: 'node_modules/'
+      - id: check-yaml
+        description: Attempts to load all yaml files to verify syntax
+      - id: check-added-large-files
+        description: Prevent giant files from being committed
+        args: ['--maxkb=1000']
+        exclude: 'node_modules/'
+      - id: check-json
+        description: Attempts to load all json files to verify syntax
+        exclude: 'node_modules/'
+      - id: check-toml
+        description: Attempts to load all toml files to verify syntax
+      - id: check-xml
+        description: Attempts to load all xml files to verify syntax
+      - id: debug-statements
+        description: Check for debugger imports and py37+ `breakpoint()` calls in python source
+      - id: check-merge-conflict
+        description: Check for files that contain merge conflict strings
+      - id: check-case-conflict
+        description: Check for files that would conflict in case-insensitive filesystems
+      - id: mixed-line-ending
+        description: Ensures that a file doesn't have mixed line endings
+        exclude: 'node_modules/'
+      - id: requirements-txt-fixer
+        description: Sorts entries in requirements.txt
+
+  # === PYTHON HOOKS ===
+
+  # === CODE QUALITY HOOKS (通过 .team-code-quality Makefile 调用) ===
+
+  # 代码格式化 (通过 Makefile)
+  - repo: local
+    hooks:
+      - id: team-format
+        name: team-code-format
+        entry: bash -c 'cd .team-code-quality && make format'
+        language: system
+        files: ^backend/.*\.py$|^frontend/.*\.(js|jsx|ts|tsx|vue|json|css|scss|md)$
+        pass_filenames: false
+        description: Team code formatting via Makefile (Black, isort, Prettier)
+
+  # 代码质量检查 (通过 Makefile)
+  - repo: local
+    hooks:
+      - id: team-check
+        name: team-code-check
+        entry: bash -c 'cd .team-code-quality && make check'
+        language: system
+        files: ^backend/.*\.py$|^frontend/.*\.(js|jsx|ts|tsx|vue)$
+        pass_filenames: false
+        description: Team code quality check via Makefile (flake8, pylint, mypy, eslint)
+
+  # 安全检查 (通过 Makefile)
+  - repo: local
+    hooks:
+      - id: team-security
+        name: team-security-check
+        entry: bash -c 'cd .team-code-quality && make security'
+        language: system
+        files: ^backend/.*\.py$|^frontend/.*\.(js|jsx|ts|tsx|vue)$|^(backend/requirements\.txt|backend/pyproject\.toml)$|^frontend/package\.json$
+        pass_filenames: false
+        description: Team security check via Makefile (bandit, pip-audit, npm audit)
+
+  # === JAVA HOOKS ===
+
+  # Checkstyle for Java
+  - repo: local
+    hooks:
+      - id: checkstyle
+        name: Checkstyle
+        entry: checkstyle
+        language: system
+        files: \.java$
+        args: [-c, .team-code-quality/configs/lang/java/checkstyle.xml]
+        description: Check Java code style
+
+  # PMD for Java code analysis
+  - repo: local
+    hooks:
+      - id: pmd
+        name: PMD
+        entry: pmd
+        language: system
+        files: \.java$
+        args: [-R, .team-code-quality/configs/lang/java/pmd.xml, -d, .]
+        description: PMD Java code analysis
+
+  # SpotBugs for bug detection
+  - repo: local
+    hooks:
+      - id: spotbugs
+        name: SpotBugs
+        entry: spotbugs
+        language: system
+        files: \.class$
+        pass_filenames: false
+        args: [-textui, -exclude, .team-code-quality/configs/lang/java/spotbugs-exclude.xml, -auxclasspath, .]
+        description: SpotBugs static analysis for Java
+
+# Global configuration
+default_language_version:
+  python: python3.11
+  node: "18"
+
+# Don't automatically fix files
+default_stages: [pre-commit]
+fail_fast: false
+
+# Files to exclude from all hooks
+exclude: |
+  (?x)^(
+    \.git/.*|
+    \.venv/.*|
+    venv/.*|
+    node_modules/.*|
+    target/.*|
+    build/.*|
+    dist/.*|
+    \*.class|
+    \*.jar|
+    \*.war|
+    \*.ear|
+    \.idea/.*|
+    \.vscode/.*|
+    \.DS_Store
+  )$

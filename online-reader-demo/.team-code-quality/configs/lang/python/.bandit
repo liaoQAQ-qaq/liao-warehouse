@@ -1,0 +1,8 @@
+exclude_dirs:
+  - tests
+  - venv
+  - .venv
+  - __pycache__
+skips:
+  - B101
+  - B601
