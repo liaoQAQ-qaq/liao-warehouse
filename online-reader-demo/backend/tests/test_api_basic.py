@@ -34,3 +34,20 @@ def test_upload_and_get_novel(tmp_path):
     resp_detail = client.get(f"/novels/{novel_id}")
     assert resp_detail.status_code == 200
     assert resp_detail.json()["title"] == "demo.txt"
+    
+def test_upload_invalid_encoding_returns_422():
+    # 模拟一个非 UTF-8 的“坏文件”
+    bad_bytes = b"\xff\xfe\xfa\xfb"
+    files = {"file": ("bad.bin", io.BytesIO(bad_bytes), "application/octet-stream")}
+
+    resp = client.post("/upload/", files=files)
+    assert resp.status_code == 422
+    body = resp.json()
+    assert isinstance(body.get("detail"), list)
+    assert body["detail"][0]["loc"] == ["body", "file"]
+
+
+def test_upload_empty_file_returns_422():
+    files = {"file": ("empty.txt", io.BytesIO(b""), "text/plain")}
+    resp = client.post("/upload/", files=files)
+    assert resp.status_code == 422
