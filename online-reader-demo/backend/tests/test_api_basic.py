@@ -1,6 +1,10 @@
 # backend/tests/test_api_basic.py
 import io
+import sys
 import uuid
+import shutil
+import importlib
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -59,7 +63,6 @@ def test_list_novels_contains_uploaded_one():
 
 def test_get_novel_not_found_returns_404():
     """请求一个不存在的 id，应该返回 404。"""
-    # 选一个很大的 id，理论上不存在，但在 SQLite 范围内
     resp = client.get("/novels/999999999")
     assert resp.status_code == 404
     data = resp.json()
@@ -67,7 +70,7 @@ def test_get_novel_not_found_returns_404():
 
 
 def test_get_novel_invalid_id_too_small_returns_422():
-    """id < 1 触发 _validate_novel_id 的下限分支。"""
+    """id < 1 应触发 FastAPI/Pydantic 的参数校验，返回 422。"""
     resp = client.get("/novels/0")
     assert resp.status_code == 422
     body = resp.json()
@@ -75,7 +78,7 @@ def test_get_novel_invalid_id_too_small_returns_422():
 
 
 def test_get_novel_invalid_id_too_big_returns_422():
-    """id > MAX_SQLITE_INT 触发 _validate_novel_id 的上限分支。"""
+    """id > MAX_SQLITE_INT 应触发参数校验，返回 422。"""
     too_big = MAX_SQLITE_INT + 1
     resp = client.get(f"/novels/{too_big}")
     assert resp.status_code == 422
@@ -92,15 +95,54 @@ def test_delete_novel_success_and_then_404():
     data = resp.json()
     assert data["detail"] == "Deleted successfully"
 
-    # 再查一次应该 404
     resp2 = client.get(f"/novels/{novel_id}")
     assert resp2.status_code == 404
     assert resp2.json()["detail"] == "Novel not found"
 
 
 def test_delete_novel_invalid_id_range_returns_422():
-    """删除时传入非法 id，同样触发 _validate_novel_id。"""
+    """删除时传入非法 id，同样应返回 422。"""
     resp = client.delete("/novels/0")
     assert resp.status_code == 422
     body = resp.json()
     assert "detail" in body
+
+
+def test_main_import_fallback_mode(tmp_path):
+    """
+    模拟 Docker 镜像里的运行方式:
+    - main.py 和 models.py 都在同一目录
+    - 以顶层模块 `main` 导入
+    -> `from .models import ...` 会失败，触发 fallback: `from models import ...`
+    """
+    project_root = Path(__file__).resolve().parents[2]
+    backend_dir = project_root / "backend"
+
+    # 拷贝到临时目录，模拟 /app/main.py 和 /app/models.py
+    shutil.copy(backend_dir / "main.py", tmp_path / "main.py")
+    shutil.copy(backend_dir / "models.py", tmp_path / "models.py")
+
+    # 插入 sys.path，确保 `import main` / `import models` 能找到临时目录
+    sys.path.insert(0, str(tmp_path))
+    try:
+        # 确保不会使用到旧缓存（极端情况下有人提前导入过同名模块）
+        sys.modules.pop("main", None)
+        sys.modules.pop("models", None)
+
+        main = importlib.import_module("main")
+
+        # 如果 fallback 成功，main 里应该有 app 对象
+        assert hasattr(main, "app"), "fallback 导入失败，main.app 不存在"
+    finally:
+        # 清理现场，避免污染后续测试
+        if sys.path and sys.path[0] == str(tmp_path):
+            sys.path.pop(0)
+        else:
+            # 兜底：如果路径不在首位，就按值移除
+            try:
+                sys.path.remove(str(tmp_path))
+            except ValueError:
+                pass
+
+        sys.modules.pop("main", None)
+        sys.modules.pop("models", None)

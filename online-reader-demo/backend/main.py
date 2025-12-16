@@ -4,7 +4,12 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List
 
-from .models import Base, engine, SessionLocal, Novel
+try:
+    # 情况1：本地 / CI 里，import backend.main 时走这里
+    from .models import Base, engine, SessionLocal, Novel  # type: ignore[import]
+except ImportError:
+    # 情况2：Docker 里以 "main" 顶层模块运行时走这里
+    from models import Base, engine, SessionLocal, Novel
 
 # SQLite 能支持的最大有符号整数（理论上可以不限制到这么大，你也可以自己降到 2**31-1）
 MAX_SQLITE_INT = 9223372036854775807  # 2**63 - 1
