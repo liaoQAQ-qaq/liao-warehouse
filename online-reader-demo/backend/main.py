@@ -67,20 +67,43 @@ async def upload_novel(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
+    """上传小说文本文件。
+
+    约定：
+    - 只接受 UTF-8 编码的文本文件
+    - 解码失败视为无效请求，返回 422 + 标准 ValidationError 结构
+    """
     content = await file.read()
 
-    # 宽松版：尽量不抛 400，只是按顺序尝试多种编码
-    text_content = None
-    for encoding in ("utf-8", "gbk", "latin-1"):
-        try:
-            text_content = content.decode(encoding)
-            break
-        except UnicodeDecodeError:
-            text_content = None
+    # 只接受 UTF-8 文本；解码失败则视为“无效输入”
+    try:
+        text_content = content.decode("utf-8")
+    except UnicodeDecodeError:
+        # 注意：detail 要做成 FastAPI 默认的 ValidationError 结构，
+        # 这样才符合 openapi.yaml 里 HTTPValidationError 的 schema
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {
+                    "loc": ["body", "file"],
+                    "msg": "Uploaded file must be a UTF-8 encoded text file.",
+                    "type": "value_error.binary.invalid_encoding",
+                }
+            ],
+        )
 
-    if text_content is None:
-        # 理论上很难走到这里，但真的全都失败就用 repr(二进制) 兜底
-        text_content = repr(content)
+    # 额外兜底：空文件也算无效
+    if not text_content.strip():
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {
+                    "loc": ["body", "file"],
+                    "msg": "Uploaded file is empty.",
+                    "type": "value_error.binary.empty",
+                }
+            ],
+        )
 
     novel = Novel(title=file.filename, content=text_content)
     db.add(novel)
