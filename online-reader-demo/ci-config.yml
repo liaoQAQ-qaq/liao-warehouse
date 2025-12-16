@@ -1,8 +1,30 @@
 # ===== switches =====
 enable_lint: true
 enable_unit_test: true
+enable_e2e_test: true
 enable_contract_test: true
+
 enable_coverage: true
-enable_sonar: true
+enable_codecov: true
+enable_sonarcloud: true
+
 enable_docker: true
+enable_k8s_deploy: true   # 没配集群前先关掉
 enable_deploy: true
+# ===== runtime =====
+python_version: "3.10"
+node_version: "20"
+
+# ===== sonarcloud =====
+sonar_organization: "YOUR_ORG"
+sonar_project_key: "YOUR_PROJECT_KEY"
+
+# ===== docker (GHCR default) =====
+docker_registry: "ghcr.io"
+docker_backend_image: "ghcr.io/${OWNER}/online-reader-backend"
+docker_frontend_image: "ghcr.io/${OWNER}/online-reader-frontend"
+
+# ===== k8s =====
+k8s_namespace: "online-reader"
+k8s_backend_deploy: "online-reader-backend"
+k8s_frontend_deploy: "online-reader-frontend"
