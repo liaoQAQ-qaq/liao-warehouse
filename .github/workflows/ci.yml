@@ -80,6 +80,11 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
+      - name: Pre-create team venv with pip (avoid no-pip error in uv venv)
+        run: |
+          cd .team-code-quality
+          python -m venv .venv --upgrade-deps
+
       - name: Install backend deps
         run: make deps-backend
 
