@@ -16,7 +16,7 @@ env:
   PROJECT_DIR: online-reader-demo
   BACKEND_PORT: 8000
   FRONTEND_PORT: 5173
-  DEPLOY_DIR: /opt/online-reader-demo-test   # <<< 你的服务器部署目录（按需改）
+  DEPLOY_DIR: /home/liaozhenhao/online-reader-demo-test   # <<< 你的服务器部署目录（按需改）
 
 jobs:
   precheck:
